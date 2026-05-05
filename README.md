@@ -28,7 +28,7 @@ Then open **Settings** (⌘,) and confirm:
 - **SSH host** — the BlueSky server hostname
 - **SSH port** — typically `3122`
 - **Admin SSH key path** — e.g. `~/.ssh/bluesky_admin`
-- **Default remote user** — typically `ladmin`
+- **Default remote user** — typically `admin`
 
 That's it — the host list populates from the server.
 
