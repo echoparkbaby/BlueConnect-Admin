@@ -2,10 +2,11 @@
 # Builds "BlueConnect Admin.app" — a real double-clickable macOS app bundle
 # wrapping the SwiftPM executable. Run from the project root.
 #
-# Signing config is read from a gitignored `.env-sign` file in the project
-# root (see `.env-sign.example` for the template). Without that file, the
-# build falls back to ad-hoc signing — fine for local-only use, but the app
-# won't be trusted off your machine.
+# Optional signing config: create a gitignored `.env-sign` file in the
+# project root with any of: SIGN_ID, BUNDLE_ID, VERSION, BUILD_NUMBER,
+# NOTARY_PROFILE, GITHUB_REPO. Without it, the build falls back to ad-hoc
+# signing — fine for local-only use, but the app won't be trusted off
+# your machine.
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

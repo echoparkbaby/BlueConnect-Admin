@@ -72,7 +72,7 @@ open "BlueConnect Admin.app"
 
 `build-app.sh` runs `swift build -c release`, wraps the executable into a real `.app` bundle, and ad-hoc-signs it for local-only running.
 
-To sign with your own Developer ID, copy `.env-sign.example` to `.env-sign` and fill in `SIGN_ID` (and optionally `NOTARY_PROFILE` + `GITHUB_REPO` for the full release pipeline). See `make-dmg.sh` and `release.sh`.
+To sign with your own Developer ID, create a gitignored `.env-sign` file in the project root with `SIGN_ID="Developer ID Application: …"` (and optionally `BUNDLE_ID`, `NOTARY_PROFILE`, `GITHUB_REPO` for the full release pipeline). See `make-dmg.sh` and `release.sh`.
 
 ## Support the project
 

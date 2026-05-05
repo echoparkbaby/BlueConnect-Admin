@@ -10,7 +10,7 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TAG="${1:?usage: $0 <version>  e.g. v1.0.0}"
 
 if [[ ! -f "$PROJECT_ROOT/.env-sign" ]]; then
-    echo "✖ missing .env-sign — copy .env-sign.example and fill it in" >&2
+    echo "✖ missing .env-sign — see build-app.sh for the variables it expects" >&2
     exit 1
 fi
 set -a; source "$PROJECT_ROOT/.env-sign"; set +a
