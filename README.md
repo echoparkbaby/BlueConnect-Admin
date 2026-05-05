@@ -6,7 +6,7 @@ A native macOS admin client for [BlueSkyConnect](https://github.com/BlueSkyTools
 
 ## Download
 
-Grab the latest signed `.dmg` from the [Releases page](../../releases). Drag **BlueConnect Admin** into `/Applications`. On first launch, right-click the app → **Open** to clear Gatekeeper.
+Grab the latest signed and notarized `.dmg` from the [Releases page](../../releases). Open the disk image and drag **BlueConnect Admin** into `/Applications`.
 
 ## Requirements
 
@@ -70,9 +70,7 @@ cd BlueConnect-Admin
 open "BlueConnect Admin.app"
 ```
 
-`build-app.sh` runs `swift build -c release`, wraps the executable into a real `.app` bundle, and ad-hoc-signs it for local-only running.
-
-To sign with your own Developer ID, create a gitignored `.env-sign` file in the project root with `SIGN_ID="Developer ID Application: …"` (and optionally `BUNDLE_ID`, `NOTARY_PROFILE`, `GITHUB_REPO` for the full release pipeline). See `make-dmg.sh` and `release.sh`.
+`build-app.sh` runs `swift build -c release` and wraps the executable into a `.app` bundle for local use.
 
 ## Support the project
 
