@@ -1,0 +1,12 @@
+.DS_Store
+.build/
+.swiftpm/xcode/package.xcworkspace/xcuserdata/
+.swiftpm/xcode/xcuserdata/
+DerivedData/
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+BlueConnect Admin.app/
+*.app/
+*.dmg
+.env-sign
+RELEASE_NOTES.md
