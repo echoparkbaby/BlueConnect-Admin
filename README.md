@@ -10,10 +10,33 @@ Grab the latest signed and notarized `.dmg` from the [Releases page](../../relea
 
 ## Requirements
 
-- BlueConnect (aka BlueSky Connect) already setup and running
+- A running [BlueSkyConnect](https://github.com/BlueSkyTools/BlueSkyConnect) server
+- The five BlueConnect Admin PHP endpoints deployed on that server (see [Server setup](#server-setup))
 - macOS 14 (Sonoma) or later
 - An SSH key authorized on your BlueSkyConnect server
 - BlueSky web admin credentials
+
+## Server setup
+
+Stock BlueSkyConnect ships an HTML admin UI but no JSON API. This Mac app needs five small read-mostly PHP endpoints (in `server/`) deployed once to your BSC server's web root. They don't change BSC's behavior — they translate the existing database state into JSON.
+
+The fastest deploy is the included `deploy-server.sh`:
+
+```sh
+./deploy-server.sh <ssh-user>@<bsc-host> [ssh-port] [remote-path]
+# defaults: ssh-port=22, remote-path=~/docker/stacks/bluesky
+```
+
+It scp's `server/*.php` and the `migrations/` directory to your BSC server. The categories migration runs idempotently on first request — no manual SQL needed.
+
+Verify:
+
+```sh
+curl -i -u admin:$WEBADMINPASS https://<host>/bs_hosts.json.php
+# expected: HTTP 200 with JSON body
+```
+
+If the app's login screen shows *"The server responded but doesn't have the BlueConnect Admin endpoints"*, that's the deploy step still missing.
 
 ## First launch
 
