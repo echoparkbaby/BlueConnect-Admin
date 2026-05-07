@@ -4,10 +4,8 @@ import SwiftUI
 struct LocalNetworkRow: View {
     let service: LocalService
     @EnvironmentObject private var settings: SettingsStore
-    @Environment(TailscaleBrowser.self) private var tailscale
     @Environment(TerminalSessionsManager.self) private var terminals
     @State private var hovered = false
-    @State private var showingPortSheet = false
 
     var body: some View {
         // The row is a passive label — only the trailing SSH / VNC icons
@@ -26,7 +24,7 @@ struct LocalNetworkRow: View {
                     .font(.caption2)
                     .foregroundStyle(.green)
                     .buttonStyle(.plain)
-                    .help("SSH on port \(String(service.sshPort ?? 22))")
+                    .help("SSH on port \(service.sshPort ?? 22)")
             }
             if service.hasVNC {
                 Button("VNC (Screen Share)", systemImage: "display", action: connectVNC)
@@ -34,7 +32,7 @@ struct LocalNetworkRow: View {
                     .font(.caption2)
                     .foregroundStyle(.blue)
                     .buttonStyle(.plain)
-                    .help("VNC on port \(String(service.vncPort ?? 5900))")
+                    .help("VNC on port \(service.vncPort ?? 5900)")
             }
         }
         .padding(.horizontal, 8).padding(.vertical, 5)
@@ -56,14 +54,8 @@ struct LocalNetworkRow: View {
             }
             if service.source == .tailscale {
                 Divider()
-                Button("Custom Connection…") { showingPortSheet = true }
                 Button("Hide from sidebar") { hideFromSidebar() }
             }
-        }
-        .sheet(isPresented: $showingPortSheet) {
-            TailscalePortSheet(peerName: service.name)
-                .environmentObject(settings)
-                .environment(tailscale)
         }
     }
 
@@ -71,15 +63,6 @@ struct LocalNetworkRow: View {
         var current = settings.hiddenTailscalePeers
         current.insert(service.name)
         settings.hiddenTailscalePeers = current
-    }
-
-    /// Resolved remote user for this row. Tailscale peers consult the
-    /// per-peer override → tailscaleDefaultUser → defaultRemoteUser
-    /// chain; everything else uses the global default directly.
-    private var resolvedRemoteUser: String {
-        service.source == .tailscale
-            ? settings.tailscaleUser(for: service.name)
-            : settings.defaultRemoteUser
     }
 
     private func connectSSH() {
@@ -95,7 +78,7 @@ struct LocalNetworkRow: View {
         )
         svc.openDirectSSH(hostname: service.hostname,
                           port: port,
-                          remoteUser: resolvedRemoteUser)
+                          remoteUser: settings.defaultRemoteUser)
     }
 
     private func connectVNC() {
@@ -108,6 +91,6 @@ struct LocalNetworkRow: View {
         )
         svc.openDirectVNC(hostname: service.hostname,
                           port: port,
-                          remoteUser: resolvedRemoteUser)
+                          remoteUser: settings.defaultRemoteUser)
     }
 }

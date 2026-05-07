@@ -32,9 +32,7 @@ struct SidebarView: View {
                         TailscaleSection()
                     }
                 }
-                .padding(.leading, 8)
-                .padding(.trailing, 16)   // gutter so counts + labels don't crowd the scroller
-                .padding(.top, 10)
+                .padding(.horizontal, 8).padding(.top, 10)
             }
             .clipped()
             Divider()

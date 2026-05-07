@@ -38,7 +38,6 @@ struct BlueConnectAdminApp: App {
                 auth.bootstrap(settings: settings)
                 idleLock.start(auth: auth, settings: settings)
                 if settings.localNetworkEnabled { rendezvous.start() }
-                tailscale.settings = settings
                 if settings.tailscaleEnabled { tailscale.start() }
                 MainWindowGuard.shared.install(terminals: terminals)
             }
@@ -127,17 +126,6 @@ struct BlueConnectAdminApp: App {
         }
         .windowResizability(.contentSize)
         .defaultPosition(.center)
-
-        // Pop-out terminal windows. Opened via openWindow(id:value:) when
-        // the user clicks Detach on a tab; closes when they click Re-attach
-        // (or via the red traffic light, which auto-reattaches).
-        WindowGroup("Terminal", id: "detached-terminal", for: UUID.self) { $sessionID in
-            if let id = sessionID {
-                DetachedTerminalView(sessionID: id)
-                    .environment(terminals)
-            }
-        }
-        .defaultSize(width: 800, height: 480)
 
         MenuBarExtra {
             MenuBarContent()

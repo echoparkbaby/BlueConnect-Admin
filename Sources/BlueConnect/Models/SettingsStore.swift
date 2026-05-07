@@ -89,61 +89,6 @@ final class SettingsStore: ObservableObject {
         }
     }
 
-    /// Global default ports used for every Tailscale peer. Per-peer
-    /// overrides (below) take precedence. Defaults match macOS Remote
-    /// Login (22) and Screen Sharing (5900); set these once if you've
-    /// moved sshd / VNC across your fleet uniformly.
-    @AppStorage("tailscaleSSHPort") var tailscaleSSHPort: Int = 22
-    @AppStorage("tailscaleVNCPort") var tailscaleVNCPort: Int = 5900
-
-    /// Global default remote user for every Tailscale peer. Empty falls
-    /// back to `defaultRemoteUser`. Per-peer overrides take precedence.
-    @AppStorage("tailscaleDefaultUser") var tailscaleDefaultUser: String = ""
-
-    /// JSON-encoded per-peer port overrides, keyed by Tailscale peer name.
-    /// Shape: `{"mahogany": {"ssh": 2222}, "beachwood": {"vnc": 5901}}`.
-    /// Missing keys / nil fields fall back to the global defaults above.
-    @AppStorage("tailscalePortOverridesJSON") var tailscalePortOverridesJSON: String = "{}"
-
-    var tailscalePortOverrides: [String: PortOverride] {
-        get {
-            guard let data = tailscalePortOverridesJSON.data(using: .utf8),
-                  let dict = try? JSONDecoder().decode([String: PortOverride].self, from: data)
-            else { return [:] }
-            return dict
-        }
-        set {
-            // Drop entries that don't actually override anything.
-            let pruned = newValue.filter { _, v in v.ssh != nil || v.vnc != nil }
-            if let data = try? JSONEncoder().encode(pruned),
-               let s = String(data: data, encoding: .utf8) {
-                tailscalePortOverridesJSON = s
-            }
-        }
-    }
-
-    /// Resolved SSH port for a given Tailscale peer name (override → global default).
-    func tailscaleSSHPort(for peerName: String) -> Int {
-        tailscalePortOverrides[peerName]?.ssh ?? tailscaleSSHPort
-    }
-
-    /// Resolved VNC port for a given Tailscale peer name (override → global default).
-    func tailscaleVNCPort(for peerName: String) -> Int {
-        tailscalePortOverrides[peerName]?.vnc ?? tailscaleVNCPort
-    }
-
-    /// Resolved remote user for a given Tailscale peer name. Order:
-    /// per-peer override → tailscaleDefaultUser → defaultRemoteUser.
-    func tailscaleUser(for peerName: String) -> String {
-        if let u = tailscalePortOverrides[peerName]?.user, !u.isEmpty {
-            return u
-        }
-        if !tailscaleDefaultUser.isEmpty {
-            return tailscaleDefaultUser
-        }
-        return defaultRemoteUser
-    }
-
     // Sidebar status-filter order (comma-separated keys, local per-Mac).
     @AppStorage("statusOrder") var statusOrderRaw: String = "all,favorites,recent,active,inactive,uncat"
 

@@ -11,10 +11,6 @@ final class TerminalSession: Identifiable {
     let blueskyid: Int
     @ObservationIgnored let view: LocalProcessTerminalView
     var isRunning: Bool = true
-    /// True while the session lives in its own floating window. Hidden
-    /// from the tab bar and from the main bottom-pane content while
-    /// detached, since the same NSView can't be in two hierarchies.
-    var isDetached: Bool = false
 
     enum Kind: String { case ssh, scp }
 

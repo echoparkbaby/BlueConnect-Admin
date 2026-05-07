@@ -14,10 +14,6 @@ final class TailscaleBrowser {
     private(set) var services: [LocalService] = []
     private(set) var lastError: String?
 
-    /// Set by the App at startup so the browser can resolve the right SSH
-    /// and VNC ports per peer (global default + per-peer override).
-    @ObservationIgnored var settings: SettingsStore?
-
     @ObservationIgnored private var pollTask: Task<Void, Never>?
 
     func start() {
@@ -38,24 +34,6 @@ final class TailscaleBrowser {
         lastError = nil
     }
 
-    /// Re-resolve port assignments against the current settings without
-    /// re-running the network poll. Call this after the user edits port
-    /// overrides so the sidebar reflects the change immediately.
-    func refreshPorts() {
-        guard let settings else { return }
-        services = services.map { svc in
-            guard svc.source == .tailscale else { return svc }
-            let name = svc.name
-            return LocalService(
-                name: svc.name,
-                hostname: svc.hostname,
-                sshPort: settings.tailscaleSSHPort(for: name),
-                vncPort: svc.vncPort != nil ? settings.tailscaleVNCPort(for: name) : nil,
-                source: svc.source
-            )
-        }
-    }
-
     private func poll() async {
         let data = await Task.detached(priority: .background) {
             Self.runStatus()
@@ -67,9 +45,7 @@ final class TailscaleBrowser {
         }
         do {
             let result = try JSONDecoder().decode(TailscaleStatus.self, from: data)
-            let peers = (result.peers ?? [:]).values.compactMap { peer in
-                makeService(peer)
-            }
+            let peers = (result.peers ?? [:]).values.compactMap(Self.makeService)
             services = peers.sorted {
                 $0.name.localizedStandardCompare($1.name) == .orderedAscending
             }
@@ -81,7 +57,7 @@ final class TailscaleBrowser {
         }
     }
 
-    private func makeService(_ peer: TailscalePeer) -> LocalService? {
+    private static func makeService(_ peer: TailscalePeer) -> LocalService? {
         guard peer.online == true else { return nil }
         // Skip non-Mac/non-Linux (Windows/iOS aren't useful for SSH or VNC).
         let os = peer.os ?? ""
@@ -91,14 +67,11 @@ final class TailscaleBrowser {
         // Prefer IPv4 over IPv6 — older sshd setups dislike v6 addresses.
         let ip = (peer.tailscaleIPs ?? []).first { !$0.contains(":") }
         guard let connectHost = ip ?? peer.hostName else { return nil }
-        let name = peer.hostName ?? connectHost
-        let sshPort = settings?.tailscaleSSHPort(for: name) ?? 22
-        let vncPort = isMac ? (settings?.tailscaleVNCPort(for: name) ?? 5900) : nil
         return LocalService(
-            name: name,
+            name: peer.hostName ?? connectHost,
             hostname: connectHost,
-            sshPort: sshPort,
-            vncPort: vncPort,
+            sshPort: 22,
+            vncPort: isMac ? 5900 : nil,
             source: .tailscale
         )
     }

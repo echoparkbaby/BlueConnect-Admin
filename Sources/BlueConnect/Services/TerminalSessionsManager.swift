@@ -99,31 +99,6 @@ final class TerminalSessionsManager {
         activeSelection = tunnels.isEmpty ? nil : .connections
     }
 
-    /// Pop the session out of the tab bar into its own floating window.
-    /// The matching `WindowGroup("Terminal", id: "detached-terminal")` in
-    /// the App scene picks it up by UUID.
-    func detach(_ id: UUID) {
-        guard let s = sessions.first(where: { $0.id == id }) else { return }
-        s.isDetached = true
-        // Pick a sensible new active selection — first non-detached session.
-        if case .session(let active) = activeSelection, active == id {
-            if let next = sessions.first(where: { $0.id != id && !$0.isDetached }) {
-                activeSelection = .session(next.id)
-            } else if !tunnels.isEmpty {
-                activeSelection = .connections
-            } else {
-                activeSelection = nil
-            }
-        }
-    }
-
-    /// Pull a detached session back into the tab bar.
-    func reattach(_ id: UUID) {
-        guard let s = sessions.first(where: { $0.id == id }), s.isDetached else { return }
-        s.isDetached = false
-        activeSelection = .session(id)
-    }
-
     func selectPrevious() {
         guard let id = activeSessionID, let i = sessions.firstIndex(where: { $0.id == id }) else {
             activeSessionID = sessions.last?.id; return
