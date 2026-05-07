@@ -95,6 +95,63 @@ open "BlueConnect Admin.app"
 
 `build-app.sh` runs `swift build -c release` and wraps the executable into a `.app` bundle for local use.
 
+## Troubleshooting
+
+### Sign-in fails with HTTP 404
+
+The BSC server doesn't have the BlueConnect Admin PHP endpoints installed. Run the deploy:
+
+```sh
+./deploy-server.sh <ssh-user>@<bsc-host>
+```
+
+See [Server setup](#server-setup) for path overrides if your BSC layout puts the web root somewhere other than `~/docker/stacks/bluesky`.
+
+### PHP files deployed but the app still says "endpoints missing"
+
+The files probably landed one directory above Apache's docroot. In a typical sphen/bluesky container the docroot is `Server/html/` and files live at `Server/`. Move them:
+
+```sh
+mv .../Server/bs_*.json.php .../Server/html/
+```
+
+Verify with curl:
+
+```sh
+curl -i -u admin:$WEBADMINPASS https://<host>/bs_hosts.json.php
+```
+
+200 + JSON = good. Re-pass the deeper path next time:
+
+```sh
+./deploy-server.sh <user>@<host> 22 /usr/local/bin/BlueSkyConnect/Server/html
+```
+
+### Sign-in returns `{"error":"MYSQLROOTPASS not set on server"}`
+
+The PHP loaded but couldn't read the MySQL root password from the container's environment. Most often this happens after pulling a fresh BSC image — env vars from the previous container don't carry over.
+
+Check what the PHP can actually see:
+
+```sh
+docker exec <bluesky-container> cat /proc/1/environ | tr '\0' '\n' | grep -E 'MYSQLROOTPASS|WEBADMINPASS'
+```
+
+If `MYSQLROOTPASS` is missing, re-pass it in the container's environment (in `docker-compose.yml` under `environment:` for the bluesky service, or via `-e MYSQLROOTPASS=...` on `docker run`) and recreate the container. Note: PHP reads from `/proc/1/environ` because Apache strips environment vars in the request handler — passing it via Apache `SetEnv` won't work.
+
+### Tailscale section says "CLI not found"
+
+Install the [Tailscale CLI](https://tailscale.com/download). Either the Mac App Store / standalone app (`/Applications/Tailscale.app`) or `brew install tailscale` works. The app probes `/opt/homebrew/bin/tailscale`, `/usr/local/bin/tailscale`, and the App Store bundle.
+
+### Tailscale peer connects on the wrong port
+
+You're hitting the global default (22 for SSH, 5900 for VNC). Two ways to override:
+
+- **All Tailscale peers**: Settings → Tailscale Defaults → SSH port / VNC port
+- **One peer**: right-click the peer in the sidebar → **Custom Connection…** → set ports there. Per-peer overrides win over the global defaults.
+
+The same screen has a User field if you need a different remote user for one peer.
+
 ## Support the project
 
 If BlueConnect Admin saves you time, a tip is always appreciated.

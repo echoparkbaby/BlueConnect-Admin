@@ -7,6 +7,13 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
 
+    // Local string mirrors of the Tailscale port settings. We use a plain
+    // String binding (not TextField(value:format:)) because IntegerFormatStyle
+    // auto-applies locale grouping (2225 → "2,225") and on round-trip parses
+    // the comma weirdly — landing the user on port 25.
+    @State private var tailscaleSSHPortText: String = ""
+    @State private var tailscaleVNCPortText: String = ""
+
     private var appVersion: String {
         let info = Bundle.main.infoDictionary
         let v = info?["CFBundleShortVersionString"] as? String ?? "0.1.0"
@@ -66,6 +73,18 @@ struct SettingsView: View {
                 Toggle("Show Tailscale peers in sidebar", isOn: $settings.tailscaleEnabled)
                     .help("Lists online tailnet machines (macOS + Linux) under their own “Tailscale” section. Reads from the local `tailscale` CLI; off by default.")
             }
+            Section("Tailscale Defaults") {
+                TextField("Default user",
+                          text: $settings.tailscaleDefaultUser,
+                          prompt: Text(verbatim: settings.defaultRemoteUser))
+                    .help("Remote user used for SSH/VNC/SCP to a Tailscale peer. Leave blank to fall back to the global Default remote user above. Per-peer overrides take precedence.")
+                TextField("SSH port", text: $tailscaleSSHPortText)
+                    .onChange(of: tailscaleSSHPortText) { _, _ in commitSSHPort() }
+                    .help("Used when connecting via SSH to a Tailscale peer. Per-peer overrides (right-click a peer → Custom Connection…) take precedence.")
+                TextField("VNC port", text: $tailscaleVNCPortText)
+                    .onChange(of: tailscaleVNCPortText) { _, _ in commitVNCPort() }
+                    .help("Used when connecting via Screen Sharing to a Tailscale peer. Per-peer overrides take precedence.")
+            }
             Section("Notifications") {
                 Toggle("Notify on host online/offline transitions", isOn: $settings.notifyOnStateChange)
             }
@@ -93,6 +112,26 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .frame(width: 520, height: 620)
+        .onAppear {
+            tailscaleSSHPortText = String(settings.tailscaleSSHPort)
+            tailscaleVNCPortText = String(settings.tailscaleVNCPort)
+        }
+    }
+
+    private func commitSSHPort() {
+        let trimmed = tailscaleSSHPortText.trimmingCharacters(in: .whitespaces)
+        if let v = Int(trimmed), (1...65535).contains(v) {
+            settings.tailscaleSSHPort = v
+        }
+        // Don't reset the text on every keystroke — the user may be partway
+        // through typing. They'll see only digits get committed.
+    }
+
+    private func commitVNCPort() {
+        let trimmed = tailscaleVNCPortText.trimmingCharacters(in: .whitespaces)
+        if let v = Int(trimmed), (1...65535).contains(v) {
+            settings.tailscaleVNCPort = v
+        }
     }
 }
 
