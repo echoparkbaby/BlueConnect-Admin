@@ -4,6 +4,11 @@ import SwiftTerm
 
 struct TerminalPaneView: View {
     var manager: TerminalSessionsManager
+    @Environment(\.openWindow) private var openWindow
+
+    private var attachedSessions: [TerminalSession] {
+        manager.sessions.filter { !$0.isDetached }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -19,7 +24,11 @@ struct TerminalPaneView: View {
         switch manager.activeSelection {
         case .session(let id):
             if let s = manager.sessions.first(where: { $0.id == id }) {
-                TerminalContainer(terminal: s.view).id(s.id)
+                if s.isDetached {
+                    detachedPlaceholder(for: s)
+                } else {
+                    TerminalContainer(terminal: s.view).id(s.id)
+                }
             } else { emptyState("Session ended") }
         case .connections:
             ConnectionsListView(manager: manager)
@@ -30,6 +39,18 @@ struct TerminalPaneView: View {
         }
     }
 
+    private func detachedPlaceholder(for session: TerminalSession) -> some View {
+        VStack(spacing: 12) {
+            Image(systemName: "rectangle.on.rectangle.angled")
+                .font(.largeTitle).foregroundStyle(.secondary)
+            Text("\(session.title) is in its own window")
+                .font(.headline)
+            Button("Bring it back") { manager.reattach(session.id) }
+                .buttonStyle(.borderedProminent)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
     private func emptyState(_ msg: String) -> some View {
         Text(msg).foregroundStyle(.secondary).frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -38,11 +59,16 @@ struct TerminalPaneView: View {
         HStack(spacing: 0) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 0) {
-                    ForEach(manager.sessions) { s in
+                    ForEach(attachedSessions) { s in
                         TerminalTab(session: s,
                                     isActive: manager.activeSelection == .session(s.id),
                                     onSelect: { manager.activeSelection = .session(s.id) },
-                                    onClose: { manager.close(s.id) })
+                                    onClose: { manager.close(s.id) },
+                                    onDetach: {
+                                        manager.detach(s.id)
+                                        openWindow(id: "detached-terminal", value: s.id)
+                                    },
+                                    onCloseAll: { manager.closeAll() })
                     }
                     if !manager.tunnels.isEmpty || manager.activeSelection == .connections {
                         ConnectionsTab(count: manager.tunnels.count,
