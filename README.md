@@ -38,6 +38,109 @@ curl -i -u admin:$WEBADMINPASS https://<host>/bs_hosts.json.php
 
 If the app's login screen shows *"The server responded but doesn't have the BlueConnect Admin endpoints"*, that's the deploy step still missing.
 
+## Package Repo (optional)
+
+The Install Package feature is opt-in. If you want it, you need somewhere to host your `.pkg` / `.dmg` / `.app` installers and a JSON listing of them. The app talks to your repo over one of three protocols, picked in Settings → Package Repo:
+
+| Service | Auth | Best for |
+|---|---|---|
+| **SSH / SFTP** | SSH private key | Self-hosted shell server, Bluehost / shared hosting with SSH, any Linux box. |
+| **FTP / FTPS** | Username + password (Keychain) | Legacy shared hosting, NAS units that only expose FTP. |
+| **Nextcloud (WebDAV)** | Username + app password (Keychain) | Nextcloud or ownCloud servers with a folder share. |
+
+### Hosting the catalog
+
+Two flavors of catalog file in the `server/` directory:
+
+- **`catalog.php`** — drop into your `pkgs/` directory on a PHP-capable host. On every request it scans the directory and emits a JSON listing of every `.pkg` / `.dmg` it finds. Add files to the folder → they auto-appear in the picker. Optional `metadata.json` sidecar adds friendly names, groups, descriptions, icons, and destructive flags.
+- **Static `catalog.json`** — generate locally with `tools/sync-catalog.sh` (rclone-based, works with any backend) and upload alongside the installers.
+
+### Enriching with .pkg / .app metadata
+
+Run `tools/extract-metadata.sh <pkgs-dir>` on the server (or locally) to pull `identifier`, `version`, and `title` out of every `.pkg`'s `PackageInfo` (`xar`) and every `.app`'s `Info.plist`. Merges into `metadata.json` without clobbering manual fields. Cron it for an always-fresh repo:
+
+```cron
+*/15 * * * * cd ~/path/to/pkgs && bash extract-metadata.sh . >/dev/null 2>&1
+```
+
+### Drop-to-install + drop-to-repo
+
+With a Package Repo configured, dropping a `.pkg` / `.dmg` / `.app` onto a host row does both: installs on the host **and** uploads the file to your repo so it shows up in the picker for next time. To upload without installing, use **Connect → Upload Package to Repo…** (⌘⇧U).
+
+## MunkiReport integration (optional)
+
+If you run [MunkiReport-php](https://github.com/munkireport/munkireport-php), the app can pull inventory directly from it — last check-in, OS version, model, FileVault status, last Munki run, managed installs, battery health, disk SMART. Right-click any host → **Software Inventory → MunkiReport Stats…**.
+
+MunkiReport-php has no external REST API, so the app talks to a tiny standalone PHP file (`server/munkireport-module/blueconnect_api.php`) you drop into MR's webroot. The file reads MR's database directly via the same `CONNECTION_*` env vars MR already has set, gates everything behind a Bearer token, and degrades gracefully when optional MR modules aren't installed.
+
+### Server-side setup
+
+The PHP file ships in this repo at `server/munkireport-module/blueconnect_api.php`. Drop it into the MR container's `public/` directory and tell the container what Bearer token to accept.
+
+**1. Copy the PHP file** to wherever your MR container has its `public/` (or a bind-mounted subdir of it):
+
+```bash
+scp -P 2225 server/munkireport-module/blueconnect_api.php \
+    user@mr-host:/path/to/munkireport/public/blueconnect_api.php
+```
+
+A common bind-mount layout puts host-side `public/` at `/var/munkireport/public/custom/` inside the container — that's fine, the file just ends up reachable under `/custom/blueconnect_api.php` instead of `/blueconnect_api.php` (the **API path** Settings field handles either layout).
+
+**2. Generate a token and add it** to MR's env file:
+
+```bash
+TOKEN=$(openssl rand -hex 24)
+echo "BLUECONNECT_API_TOKEN=$TOKEN" >> /path/to/munkireport/munkireport.env
+docker compose up -d munkireport     # restart so the new env var is picked up
+echo "Token: $TOKEN"                 # copy this — you'll paste it into the app
+```
+
+**3. Verify from a shell** before pasting into the app:
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+     https://munkireport.example.com/blueconnect_api.php?action=ping
+# Or, for the /custom/ layout:
+curl -H "Authorization: Bearer $TOKEN" \
+     https://munkireport.example.com/custom/blueconnect_api.php?action=ping
+# Expected: {"ok":true,"driver":"mysql"}   (or "sqlite")
+```
+
+### App-side setup
+
+Open **Settings → MunkiReport** and fill in:
+
+| Field | Value |
+|---|---|
+| **MunkiReport server URL** | e.g. `https://munkireport.example.com` (no trailing slash) |
+| **API token** | the value you generated above (stored in macOS Keychain) |
+| **API path** | `blueconnect_api.php` (default) or `custom/blueconnect_api.php` (when MR's bind mount surfaces the file under `/custom/`) |
+
+Then click **Test Connection**. A green checkmark means the URL, token, and DB connection are all good. From here, right-click any host that has a serial number → **Software Inventory → MunkiReport Stats…** to pull its inventory.
+
+### What you get
+
+The inventory sheet renders only the sections your MR server actually has — missing modules are skipped silently:
+
+- **Machine** — model, CPU, RAM, OS version, hostname
+- **Check-in** — last check-in time (with relative ago), console user, remote IP, uptime
+- **Munki** — last run type/time, error & warning counts (colored), manifest name
+- **FileVault** — encryption status, recovery key escrow status, enabled users
+- **Storage** — drive model, total/free, SMART status
+- **Battery** — condition, cycle count, max capacity %, charge %, AC state
+- **Managed Installs** — first 20 packages with checkmark for installed / dashed circle for pending, plus installed version
+
+### Troubleshooting
+
+| Symptom | Likely cause |
+|---|---|
+| `HTTP 503 — BLUECONNECT_API_TOKEN env var not set` | The env var didn't land on the running container. Re-run `docker compose up -d munkireport` after editing the env file; `docker compose restart` is NOT enough because it doesn't reload env. |
+| `HTTP 401 — Authorization: Bearer <token> required` | nginx / reverse proxy is stripping the `Authorization` header. For nginx, add `proxy_pass_request_headers on;` (default) and confirm no `proxy_set_header Authorization "";`. For Cloudflare, no action needed. |
+| `HTTP 403 — Invalid token` | Token mismatch between the app and the container env. Generate a fresh one, set both ends, retry. |
+| `HTTP 404` | API path is wrong. If the file lives under `/custom/`, set the **API path** field to `custom/blueconnect_api.php`. |
+| `HTTP 500 — DB connection failed` | The `CONNECTION_*` env vars on the container don't match what MR uses. The PHP file reuses MR's existing DB config — verify MR itself can reach the DB first. |
+| Sections come back null for a host that should have data | That MR module isn't installed (the PHP file safe-catches missing tables). Install/enable the corresponding MR module — `filevault_status`, `disk_report`, `power`, `managedinstalls`, etc. — and the section will populate on next refresh. |
+
 ## First launch
 
 The login window asks for:
@@ -57,12 +160,15 @@ That's it — the host list populates from the server.
 
 ## Features
 
-- **Built-in terminal** — every SSH connection opens in a tab right inside the app (SwiftTerm). No external Terminal.app, no window juggling.
-- **Drag-and-drop file transfer** — drop a file onto any host row in the table and a Send File window pops up with the source pre-filled. One click and it's on the remote Mac.
-- **Send File window** — split-pane source/destination, live progress, ETA + transfer rate, quick-path destination buttons (Desktop / Downloads / Documents / Home / `/tmp`). After a successful transfer there's a **Copy file link** button that puts a clickable `file://` URL on your clipboard — paste it into iMessage or Mail and the recipient (the Mac you just sent to) opens straight to that file in Finder.
+- **Built-in terminal** — every SSH connection opens in a tab right inside the app (SwiftTerm). No external Terminal.app, no window juggling. Detach a tab into its own floating window with the icon on the tab; re-attach with the button on the floating window.
+- **Drag-and-drop file transfer** — drop a regular file onto any host row in the table and a Send File window pops up with the source pre-filled. One click and it's on the remote Mac.
+- **Drag-and-drop install** — drop a `.pkg`, `.dmg`, or `.app` onto a host row and a dedicated Install Package window opens. Stepped checklist (Compress → Upload → Mount → Install → Clean Up), live `scp` percent, optional sudo password field. `.app` bundles are handled either as **Compress to DMG** (hdiutil locally, then mount/copy on the remote) or **Send Raw** (`scp -r` then `sudo mv` to /Applications).
+- **Package Repo** — point Settings → Package Repo at a hosted catalog (your own server, Nextcloud share, GitHub Releases, etc.) and you get a searchable picker with grouped sections, descriptions, and per-package metadata (version, bundle ID, min macOS). Right-click a host → **Install Package…** to install one of those packages remotely; drop an installer into the picker to also push it to the repo.
+- **Three upload services** for the repo: **SSH / SFTP** (SSH key auth), **FTP / FTPS** (user + password), **Nextcloud (WebDAV)** (server + app password). Pick one in Settings; the structured fields swap to match.
+- **Send File window** — split-pane source/destination, live progress, ETA + transfer rate, quick-path destination buttons (Desktop / Downloads / Documents / Home / `/tmp`). After a successful transfer there's a **Copy file link** button that puts a clickable `file://` URL on your clipboard.
 - **Local Network sidebar** — Bonjour discovers other Macs on your LAN with SSH and Screen Sharing enabled. One-click SSH or VNC, no tunnel needed.
-- **Tailscale sidebar** — pulls peers from `tailscale status`, lists every reachable macOS / Linux machine across your tailnet. SSH icon for any peer, VNC for Macs that have Screen Sharing on. Bulk hide/show via the eye-slash button — skip the iPhones, ATVs, and Linux boxes you don't care about.
-- **Touch ID lock** — biometric unlock with an auto-lock timer when the app is idle. Enable it in Settings.
+- **Tailscale sidebar** — pulls peers from `tailscale status`, lists every reachable macOS / Linux machine across your tailnet. SSH and VNC icons. Bulk hide/show via the eye-slash button; right-click a peer → **Custom Connection…** to override user + SSH/VNC port per peer.
+- **Touch ID lock** — biometric unlock with an auto-lock timer when the app is idle. Enable in Settings.
 - **Menu bar extra** — globe icon up top with quick host shortcuts. Goes red when the server is unreachable.
 - **Categories** — drag to reorder, drag hosts between them, sticky favorites and recents.
 
@@ -75,6 +181,8 @@ That's it — the host list populates from the server.
 | ⌘1 | Open SSH session to selected host |
 | ⌘2 | Open VNC session to selected host |
 | ⌘3 | Send File via SCP to selected host |
+| ⌘4 | Install Package on selected host (opens the Package Repo picker) |
+| ⌘⇧U | Upload Package to Repo… (no install) |
 | ⌘F | Focus the host search |
 | ⌘R | Refresh host list |
 | ⌘D | Toggle favorite on selected host |

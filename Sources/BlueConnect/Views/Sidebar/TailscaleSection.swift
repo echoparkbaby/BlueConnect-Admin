@@ -20,54 +20,75 @@ struct TailscaleSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 4) {
-                Image(systemName: "shield.lefthalf.filled")
-                    .font(.caption).foregroundStyle(.tint)
-                Text("Tailscale").font(.caption).bold().foregroundStyle(.secondary)
-                Spacer()
-                if !browser.services.isEmpty {
-                    Button {
-                        showingManager = true
-                    } label: {
-                        Image(systemName: "eye.slash")
-                            .font(.caption2)
+            header
+                .padding(.bottom, 2)
+
+            if !settings.sidebarTailscaleCollapsed {
+                if visible.isEmpty {
+                    Text(browser.lastError == nil
+                         ? (browser.services.isEmpty ? "Loading…" : "All peers hidden")
+                         : "Tailscale CLI not found")
+                        .font(.caption2).foregroundStyle(.secondary)
+                        .padding(.horizontal, 8).padding(.vertical, 6)
+                } else {
+                    ForEach(visible) { svc in
+                        LocalNetworkRow(service: svc)
+                    }
+                }
+
+                if hiddenCount > 0 {
+                    Button("Show \(hiddenCount) hidden peer\(hiddenCount == 1 ? "" : "s")") {
+                        settings.hiddenTailscalePeers = []
                     }
                     .buttonStyle(.borderless)
+                    .font(.caption2)
                     .foregroundStyle(.secondary)
-                    .help("Manage visible peers")
-                    .popover(isPresented: $showingManager, arrowEdge: .trailing) {
-                        TailscalePeerManager()
-                            .environmentObject(settings)
-                            .environment(browser)
-                    }
+                    .padding(.horizontal, 8).padding(.vertical, 4)
                 }
-                if !visible.isEmpty {
-                    Text("\(visible.count)")
+            }
+        }
+    }
+
+    private var header: some View {
+        HStack(spacing: 4) {
+            Button {
+                withAnimation(.snappy(duration: 0.15)) {
+                    settings.sidebarTailscaleCollapsed.toggle()
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: settings.sidebarTailscaleCollapsed
+                          ? "chevron.right" : "chevron.down")
                         .font(.caption2).foregroundStyle(.secondary)
+                        .frame(width: 10)
+                    Image(systemName: "shield.lefthalf.filled")
+                        .font(.caption).foregroundStyle(.tint)
+                    Text("Tailscale").font(.caption).bold().foregroundStyle(.secondary)
+                    Spacer()
                 }
+                .contentShape(Rectangle())
             }
-            .padding(.bottom, 2)
+            .buttonStyle(.plain)
 
-            if visible.isEmpty {
-                Text(browser.lastError == nil
-                     ? (browser.services.isEmpty ? "Loading…" : "All peers hidden")
-                     : "Tailscale CLI not found")
-                    .font(.caption2).foregroundStyle(.secondary)
-                    .padding(.horizontal, 8).padding(.vertical, 6)
-            } else {
-                ForEach(visible) { svc in
-                    LocalNetworkRow(service: svc)
-                }
-            }
-
-            if hiddenCount > 0 {
-                Button("Show \(hiddenCount) hidden peer\(hiddenCount == 1 ? "" : "s")") {
-                    settings.hiddenTailscalePeers = []
+            if !browser.services.isEmpty && !settings.sidebarTailscaleCollapsed {
+                Button {
+                    showingManager = true
+                } label: {
+                    Image(systemName: "eye.slash")
+                        .font(.caption2)
                 }
                 .buttonStyle(.borderless)
-                .font(.caption2)
                 .foregroundStyle(.secondary)
-                .padding(.horizontal, 8).padding(.vertical, 4)
+                .help("Manage visible peers")
+                .popover(isPresented: $showingManager, arrowEdge: .trailing) {
+                    TailscalePeerManager()
+                        .environmentObject(settings)
+                        .environment(browser)
+                }
+            }
+            if !visible.isEmpty {
+                Text("\(visible.count)")
+                    .font(.caption2).foregroundStyle(.secondary)
             }
         }
     }

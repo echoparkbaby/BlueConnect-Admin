@@ -32,6 +32,138 @@ struct ConnectionService {
         }
     }
 
+    /// Upload a local .pkg or .dmg over the BSC SSH tunnel, install it on
+    /// the remote, and clean up — all visible as one terminal tab. Uses
+    /// `ssh -t … 'cat > /tmp/<f> && installer ...' < /local/file` to do
+    /// the upload+install with a single ssh round-trip and a single sudo
+    /// prompt. .dmg files get mounted, the first .pkg or .app inside is
+    /// installed, then the volume is detached.
+    func installLocalPackage(host: BlueSkyHost, remoteUser: String, localFile: URL) {
+        onConnect?(host)
+        let filename = localFile.lastPathComponent
+        let remotePath = "/tmp/\(filename)"
+        let ext = (filename as NSString).pathExtension.lowercased()
+        let proxy = "ProxyCommand=ssh -o WarnWeakCrypto=no -p \(serverSshPort) -i \(adminKeyPath) admin@\(server) /bin/nc %h %p"
+
+        let installCmd: String
+        switch ext {
+        case "pkg":
+            installCmd = "sudo installer -pkg \(Self.shq(remotePath)) -target /"
+        case "dmg":
+            installCmd = """
+            mp=$(mktemp -d) && hdiutil attach -quiet -nobrowse -mountpoint "$mp" \(Self.shq(remotePath)) && \
+            if pkg=$(find "$mp" -maxdepth 2 -name '*.pkg' -print -quit) && [ -n "$pkg" ]; then \
+              sudo installer -pkg "$pkg" -target /; \
+            elif app=$(find "$mp" -maxdepth 2 -name '*.app' -print -quit) && [ -n "$app" ]; then \
+              sudo cp -R "$app" /Applications/; \
+            else \
+              echo "No .pkg or .app found in DMG"; status=1; \
+            fi; \
+            hdiutil detach -quiet "$mp"; \
+            [ -z "${status:-}" ] || exit "$status"
+            """
+        default:
+            installCmd = "echo 'Unsupported file type: \(filename)'; exit 1"
+        }
+
+        // Stream local file via stdin → remote `cat`, then install, then rm.
+        let remoteScript = "cat > \(Self.shq(remotePath)) && \(installCmd); rm -f \(Self.shq(remotePath))"
+        let bashCmd = """
+        set -e
+        echo "▶ Uploading and installing \(filename) on \(host.displayName)…"
+        ssh -t -o \(Self.shq(proxy)) -o StrictHostKeyChecking=no -o WarnWeakCrypto=no \\
+            -p \(host.sshPort) \(Self.shq("\(remoteUser)@localhost")) \(Self.shq(remoteScript)) \\
+            < \(Self.shq(localFile.path))
+        echo "✓ Done."
+        """
+
+        Task { @MainActor in
+            _ = terminals.openSSH(
+                blueskyid: host.blueskyid,
+                displayName: "install: \(filename) → \(host.displayName)",
+                executable: "/bin/bash", args: ["-c", bashCmd]
+            )
+        }
+    }
+
+    /// POSIX single-quote escape — handles filenames with spaces, quotes,
+    /// or shell-metacharacters when building bash -c commands.
+    private static func shq(_ s: String) -> String {
+        "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    /// Compress a local `.app` bundle into a DMG and then run the standard
+    /// .dmg install pipeline (mount → copy .app to /Applications →
+    /// detach). All in one terminal tab so the operator sees compress +
+    /// upload + install progress in order. The local DMG is cleaned up
+    /// after the terminal session exits.
+    func installLocalApp(host: BlueSkyHost, remoteUser: String, localApp: URL) {
+        onConnect?(host)
+        let appName = localApp.deletingPathExtension().lastPathComponent
+        let dmgFile = "\(appName).dmg"
+        let remotePath = "/tmp/\(dmgFile)"
+        let proxy = "ProxyCommand=ssh -o WarnWeakCrypto=no -p \(serverSshPort) -i \(adminKeyPath) admin@\(server) /bin/nc %h %p"
+
+        let remoteScript = """
+        cat > \(Self.shq(remotePath)) && \
+        mp=$(mktemp -d) && hdiutil attach -quiet -nobrowse -mountpoint "$mp" \(Self.shq(remotePath)) && \
+        if app=$(find "$mp" -maxdepth 2 -name '*.app' -print -quit) && [ -n "$app" ]; then \
+          sudo rm -rf "/Applications/$(basename "$app")" && \
+          sudo cp -R "$app" /Applications/; \
+        else \
+          echo "No .app found in DMG"; status=1; \
+        fi; \
+        hdiutil detach -quiet "$mp"; \
+        rm -f \(Self.shq(remotePath)); \
+        [ -z "${status:-}" ] || exit "$status"
+        """
+
+        let bashCmd = """
+        set -e
+        tmp_dmg=$(mktemp -t bcadmin-XXXXX).dmg
+        trap 'rm -f "$tmp_dmg"' EXIT
+        echo "▶ Compressing \(appName).app into a DMG…"
+        hdiutil create -quiet -srcfolder \(Self.shq(localApp.path)) \
+                       -format UDZO -volname \(Self.shq(appName)) "$tmp_dmg"
+        echo "▶ Uploading to \(host.displayName) and copying into /Applications…"
+        ssh -t -o \(Self.shq(proxy)) -o StrictHostKeyChecking=no -o WarnWeakCrypto=no \\
+            -p \(host.sshPort) \(Self.shq("\(remoteUser)@localhost")) \(Self.shq(remoteScript)) \\
+            < "$tmp_dmg"
+        echo "✓ Installed \(appName).app."
+        """
+
+        Task { @MainActor in
+            _ = terminals.openSSH(
+                blueskyid: host.blueskyid,
+                displayName: "install: \(appName).app → \(host.displayName)",
+                executable: "/bin/bash", args: ["-c", bashCmd]
+            )
+        }
+    }
+
+    /// Open an embedded terminal tab that runs a one-shot remote command
+    /// (e.g. a curl + installer pipeline) over the BSC SSH tunnel. -t
+    /// allocates a TTY so sudo can prompt for a password if needed.
+    func openRemoteCommand(host: BlueSkyHost, remoteUser: String,
+                           command: String, label: String) {
+        onConnect?(host)
+        let proxy = "ProxyCommand=ssh -o WarnWeakCrypto=no -p \(serverSshPort) -i \(adminKeyPath) admin@\(server) /bin/nc %h %p"
+        let args = [
+            "-t", "-o", proxy,
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "WarnWeakCrypto=no",
+            "-p", "\(host.sshPort)", "\(remoteUser)@localhost",
+            command,
+        ]
+        Task { @MainActor in
+            _ = terminals.openSSH(
+                blueskyid: host.blueskyid,
+                displayName: "\(label) → \(host.displayName)",
+                executable: "/usr/bin/ssh", args: args
+            )
+        }
+    }
+
     /// Build a controller for the modal VNC progress sheet.
     @MainActor
     func makeVNCController(host: BlueSkyHost, remoteUser: String, recents: RecentConnectStore) -> VNCConnectController {

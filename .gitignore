@@ -10,3 +10,5 @@ BlueConnect Admin.app/
 *.dmg
 .env-sign
 RELEASE_NOTES.md
+HANDOFF.md
+catalog.*.json

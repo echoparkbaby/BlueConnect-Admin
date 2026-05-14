@@ -4,6 +4,20 @@ struct ConnectPanel: View {
     @EnvironmentObject var settings: SettingsStore
     @Environment(CategoryStore.self) var categories
     @Environment(TerminalSessionsManager.self) var terminals
+    @Environment(MunkiReportInventoryStore.self) private var mrInventory
+
+    /// Tab inside the single-host pane. Persists across app launches so
+    /// admins who live on the Inventory tab stay there.
+    @AppStorage("connectPanelTab") private var tabRaw: String = "connect"
+    private enum Tab: String { case connect, inventory }
+    private var tab: Tab {
+        get { Tab(rawValue: tabRaw) ?? .connect }
+    }
+    private var tabBinding: Binding<Tab> {
+        Binding(get: { Tab(rawValue: tabRaw) ?? .connect },
+                set: { tabRaw = $0.rawValue })
+    }
+
     let hosts: [BlueSkyHost]
     let onSCPNeedsFile: (BlueSkyHost) -> Void
     let onVNCRequest: (BlueSkyHost, String) -> Void
@@ -43,21 +57,119 @@ struct ConnectPanel: View {
     private func singleHostBody(host: BlueSkyHost) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             hostHeader(host)
-            categoryRow(host)
-            Divider()
-            detailsBlock(host)
-            Divider()
-            userField(host)
-            actionButtons(host)
-            if !host.active { inactiveWarning }
-            Divider()
-            alertsBlock(host)
-            Divider()
-            notesBlock(host)
-            Divider()
-            dangerZone(host)
+            // Only show the tab switcher when MR creds are configured —
+            // otherwise the Inventory tab would be a dead-end stub.
+            if settings.isMunkiReportAPIConfigured {
+                Picker("View", selection: tabBinding) {
+                    Text("Connect").tag(Tab.connect)
+                    Text("Inventory").tag(Tab.inventory)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+            }
+            switch tab {
+            case .connect:   connectTab(host: host)
+            case .inventory: inventoryTab(host: host)
+            }
             Spacer(minLength: 0)
         }
+    }
+
+    /// Original connect-actions tab (categories, details, terminal/SSH
+    /// buttons, alerts, notes, danger zone). Mirrors the pre-tab layout
+    /// 1-for-1.
+    @ViewBuilder
+    private func connectTab(host: BlueSkyHost) -> some View {
+        categoryRow(host)
+        Divider()
+        detailsBlock(host)
+        Divider()
+        userField(host)
+        actionButtons(host)
+        if !host.active { inactiveWarning }
+        Divider()
+        alertsBlock(host)
+        Divider()
+        notesBlock(host)
+        Divider()
+        dangerZone(host)
+    }
+
+    /// MunkiReport inventory tab. Reads from the shared inventory cache
+    /// so flipping between hosts is instant after the first fetch; the
+    /// fetch fires automatically on host change via `.task(id:)`.
+    @ViewBuilder
+    private func inventoryTab(host: BlueSkyHost) -> some View {
+        if let serial = host.serialnum?.trimmingCharacters(in: .whitespaces),
+           !serial.isEmpty {
+            inventoryHeader(host: host, serial: serial)
+            if let err = mrInventory.errorBySerial[serial] {
+                inventoryError(err, host: host, serial: serial)
+            } else if let inv = mrInventory.bySerial[serial] {
+                MunkiReportInventoryContent(inventory: inv, compact: true)
+            } else if mrInventory.loadingSerial == serial {
+                inventoryLoading
+            } else {
+                inventoryLoading
+                    .task { mrInventory.loadIfNeeded(serial: serial, settings: settings) }
+            }
+        } else {
+            Text("This host has no serial number — MunkiReport keys on serial, so there's nothing to fetch.")
+                .font(.caption).foregroundStyle(.secondary)
+                .padding(.vertical, 8)
+        }
+    }
+
+    private func inventoryHeader(host: BlueSkyHost, serial: String) -> some View {
+        HStack(spacing: 6) {
+            Text(serial)
+                .font(.caption2.monospaced()).foregroundStyle(.tertiary)
+            Spacer()
+            if mrInventory.loadingSerial == serial {
+                ProgressView().controlSize(.small)
+            }
+            Button {
+                mrInventory.refresh(serial: serial, settings: settings)
+            } label: {
+                Image(systemName: "arrow.clockwise")
+            }
+            .buttonStyle(.borderless)
+            .help("Re-fetch MR inventory")
+            .disabled(mrInventory.loadingSerial == serial)
+        }
+    }
+
+    private var inventoryLoading: some View {
+        HStack(spacing: 8) {
+            ProgressView().controlSize(.small)
+            Text("Loading MunkiReport inventory…")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 12)
+    }
+
+    @ViewBuilder
+    private func inventoryError(_ msg: String, host: BlueSkyHost, serial: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                Text("MR fetch failed").font(.caption).bold()
+            }
+            Text(msg)
+                .font(.caption.monospaced())
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+            Button("Retry") {
+                mrInventory.refresh(serial: serial, settings: settings)
+            }
+            .controlSize(.small)
+        }
+        .padding(8)
+        .background(Color.orange.opacity(0.1))
+        .overlay(RoundedRectangle(cornerRadius: 6)
+                    .stroke(Color.orange.opacity(0.4)))
     }
 
     @State private var notifyEmail: String = ""

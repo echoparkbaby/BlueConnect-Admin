@@ -107,12 +107,46 @@ function bs_bluesky_version(): string {
 }
 
 /** Coerce a string to valid UTF-8 by substituting invalid byte sequences.
- *  Avoids mbstring (not installed in this php image). */
+ *  Avoids mbstring (not installed in this php image).
+ *
+ *  Also unwinds double-encoded UTF-8 ("mojibake"). The BSC daemon used
+ *  to round-trip latin1 columns through UTF-8 encoding on write, so the
+ *  original UTF-8 bytes for a smart quote (e.g. 0xE2 0x80 0x99 for `’`)
+ *  ended up encoded *again* as if they were Windows-1252 — landing in
+ *  the database as a perfectly valid (but wrong) UTF-8 string like
+ *  `â€™`. preg_match('//u') passes that string fine, so callers display
+ *  the garbled glyphs.
+ *
+ *  Strategy: if the string is valid UTF-8 *and* contains telltale
+ *  mojibake glyph pairs, try iconv-converting back to Windows-1252.
+ *  If the resulting bytes are themselves valid UTF-8, that's the
+ *  original text — return it. If anything fails, leave the string
+ *  untouched. */
 function bs_utf8($s) {
     if ($s === null || $s === '') return '';
     if (!is_string($s)) $s = (string)$s;
-    // Empty regex with /u flag is the canonical "is valid UTF-8?" check.
-    if (@preg_match('//u', $s)) return $s;
+    if (@preg_match('//u', $s)) {
+        // Already valid UTF-8 — but maybe double-encoded. Look for the
+        // common 2-byte glyph pairs that fall out of Latin-1-as-UTF-8
+        // re-encoding of original UTF-8 (curly quotes, é, è, à, ™, €).
+        // Each marker is the UTF-8 byte sequence of glyphs that only show
+        // up when latin1/cp1252 bytes get re-encoded as UTF-8:
+        //   "\xC3\xA2\xE2\x82\xAC" → "â€" (curly quote / em-dash families)
+        //   "\xC3\x83\xC2"          → "Ã" + start of another 2-byte seq
+        //                              (covers é/è/à/í/ñ/ü/ö double-encoded)
+        $mojibake_markers = ["\xC3\xA2\xE2\x82\xAC", "\xC3\x83\xC2"];
+        $looks_double_encoded = false;
+        foreach ($mojibake_markers as $m) {
+            if (strpos($s, $m) !== false) { $looks_double_encoded = true; break; }
+        }
+        if ($looks_double_encoded && function_exists('iconv')) {
+            $unwrapped = @iconv('UTF-8', 'Windows-1252//IGNORE', $s);
+            if ($unwrapped !== false && $unwrapped !== '' && @preg_match('//u', $unwrapped)) {
+                return $unwrapped;
+            }
+        }
+        return $s;
+    }
     if (function_exists('iconv')) {
         $out = @iconv('UTF-8', 'UTF-8//IGNORE', $s);
         if ($out !== false && $out !== '') return $out;

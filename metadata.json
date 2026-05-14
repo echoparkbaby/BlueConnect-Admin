@@ -1,0 +1,41 @@
+{
+  "_catalogName": "MacFaqulty Standard",
+
+  "BlueSky-2.3.2.pkg":                          { "name": "BlueSky 2.3.2",                      "group": "BlueSky" },
+  "BlueSky-2.3.2-withcert.pkg":                 { "name": "BlueSky with cert",                  "group": "BlueSky" },
+  "BlueSky_cert-1.0.pkg":                       { "name": "BlueSky cert only",                  "group": "BlueSky" },
+  "bluesky-kickstart.pkg":                      { "name": "BlueSky kickstart",                  "group": "BlueSky" },
+  "bluesky-uninstall.pkg":                      { "name": "BlueSky uninstall",                  "group": "Uninstall" },
+
+  "hellocomputer-munki-enroll-2.4.pkg":         { "name": "Munki enroll (current)",             "group": "Munki" },
+  "munki-middleware.pkg":                       { "name": "Munki middleware",                   "group": "Munki" },
+  "munkitools-6.3.1.4580.pkg":                  { "name": "Munki tools 6.3x",                   "group": "Munki" },
+  "munki_kickstart_disable.pkg":                { "name": "Munki kickstart disable",            "group": "Munki" },
+  "munki-uninstall.pkg":                        { "name": "Munki uninstall",                    "group": "Uninstall" },
+
+  "munkireport-5.8-full-installer-client.pkg":  { "name": "MunkiReport 5.8 full installer",     "group": "MunkiReport" },
+  "munkireport-5.8.0.2-20230626.pkg":           { "name": "MunkiReport 5.8",                    "group": "MunkiReport" },
+  "python_recommended_signed-3.10.9.80716.pkg": { "name": "MunkiReport Python3",                "group": "MunkiReport" },
+  "munkireport-uninistall.pkg":                 { "name": "MunkiReport uninstall",              "group": "Uninstall" },
+  "munkireport_scheduled-1.0.pkg":              { "name": "MunkiReport scheduled LaunchDaemon", "group": "MunkiReport" },
+
+  "remote-setup-1.5.1.pkg":                     { "name": "Remote Software 1.5.1",              "group": "Remote Setup" },
+
+  "mkuser-mfq.pkg":                             { "name": "mkuser mfq",                         "group": "Misc" },
+  "remotix-agent-1.5.14.pkg":                   { "name": "Remotix 1.5.14",                     "group": "Misc" },
+  "KeepingYouAwake.pkg":                        { "name": "Keeping You Awake 1.6",              "group": "Misc" },
+  "OmniDiskSweeper.pkg":                        { "name": "OmniDiskSweeper 1.14",               "group": "Misc" },
+  "disable-remote-login.pkg":                   { "name": "Remote Login: off",                  "group": "Misc" },
+  "enable-remote-login.pkg":                    { "name": "Remote Login: on",                   "group": "Misc" },
+  "install-rosetta2.pkg":                       { "name": "Rosetta 2",                          "group": "Misc" },
+  "MonitoringClient.pkg":                       { "name": "Watchman",                           "group": "Misc" },
+
+  "uninstall-bluesky-and-disable-ard.pkg":      { "name": "Uninstall BlueSky / ARD",                            "group": "Uninstall" },
+  "macfaqremote-uninstall.pkg":                 { "name": "Uninstall BlueSky / ARD / SSH / ladmin",             "group": "Uninstall" },
+  "uninstall-macfaqulty-basic-support.pkg":     { "name": "Uninstall BlueSky / ARD / SSH / ladmin / watchman",  "group": "Uninstall" },
+  "hellocomputer-remote-uninstall.pkg":         { "name": "Uninstall BlueSky / ARD / SSH / ladmin / MDM",       "group": "Uninstall" },
+  "uninstall_remote_software.pkg":              { "name": "Uninstall ALL Remote",                               "group": "Uninstall" },
+  "uninstall-MicroMDM-profile.pkg":             { "name": "Uninstall MicroMDM profile",                         "group": "Uninstall" },
+  "Backblaze-Uninstaller.pkg":                  { "name": "Uninstall BackBlaze",                                "group": "Uninstall" },
+  "uninstall-watchman-monitoring.pkg":          { "name": "Uninstall Watchman",                                 "group": "Uninstall" }
+}

@@ -20,6 +20,23 @@ struct ConnectCommands: Commands {
                 .keyboardShortcut("3", modifiers: [.command])
                 .disabled(!(actions?.hasTarget ?? false))
 
+            Button("Install Package…") { actions?.installPackage() }
+                .keyboardShortcut("4", modifiers: [.command])
+                .disabled(!(actions?.hasTarget ?? false) || !(actions?.hasPackages ?? false))
+
+            Button("Upload Package to Repo…") { actions?.uploadToRepo() }
+                .keyboardShortcut("u", modifiers: [.command, .shift])
+
+            Button("Erase / Reinstall macOS…") { actions?.eraseInstall() }
+                .keyboardShortcut("e", modifiers: [.command, .shift])
+                .disabled(!(actions?.hasTarget ?? false))
+
+            Divider()
+
+            Button("Browse Munki Repo…") { actions?.browseMunkiRepo() }
+                .keyboardShortcut("m", modifiers: [.command, .shift])
+                .disabled(!(actions?.hasMunkiRepo ?? false))
+
             Divider()
 
             Button("Refresh Hosts") { actions?.refresh() }

@@ -9,6 +9,9 @@ struct SidebarView: View {
     @Binding var selection: SidebarFilter
     let onAssign: ([Int], String) -> Void
     let onFavorite: ([Int]) -> Void
+    let onOpenMunkiBrowser: () -> Void
+    /// Shared Munki store so the sidebar reflects refresh state too.
+    let munkiStore: MunkiRepoStore
 
     @State private var showingNewCategorySheet = false
     @State private var newCategoryName = ""
@@ -30,6 +33,14 @@ struct SidebarView: View {
                     if settings.tailscaleEnabled {
                         Divider().padding(.vertical, 6)
                         TailscaleSection()
+                    }
+                    if settings.isMunkiRepoConfigured {
+                        Divider().padding(.vertical, 6)
+                        MunkiRepoSidebarSection(
+                            store: munkiStore,
+                            onOpenBrowser: onOpenMunkiBrowser
+                        )
+                        .environmentObject(settings)
                     }
                 }
                 .padding(.leading, 8)
@@ -162,16 +173,33 @@ struct SidebarView: View {
 
     private var categoriesGroup: some View {
         VStack(alignment: .leading, spacing: 2) {
-            HStack {
-                Text("Categories").font(.caption).bold().foregroundStyle(.secondary)
-                Spacer()
-                if categories.categories.count > 1 {
-                    Text("drag to reorder").font(.caption2).foregroundStyle(.secondary)
+            Button {
+                withAnimation(.snappy(duration: 0.15)) {
+                    settings.sidebarCategoriesCollapsed.toggle()
                 }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: settings.sidebarCategoriesCollapsed
+                          ? "chevron.right" : "chevron.down")
+                        .font(.caption2).foregroundStyle(.secondary)
+                        .frame(width: 10)
+                    Text("Categories").font(.caption).bold().foregroundStyle(.secondary)
+                    Spacer()
+                    if settings.sidebarCategoriesCollapsed {
+                        Text("\(categories.categories.count)")
+                            .font(.caption2).foregroundStyle(.secondary)
+                    } else if categories.categories.count > 1 {
+                        Text("drag to reorder").font(.caption2).foregroundStyle(.secondary)
+                    }
+                }
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
             .padding(.bottom, 2)
 
-            if categories.categories.isEmpty {
+            if settings.sidebarCategoriesCollapsed {
+                EmptyView()
+            } else if categories.categories.isEmpty {
                 Text("No categories yet").font(.caption2).foregroundStyle(.secondary)
                     .padding(.horizontal, 8).padding(.vertical, 6)
             } else {

@@ -22,8 +22,8 @@ struct BlueSkyHost: Codable, Identifiable, Hashable {
     var id: Int { blueskyid }
 
     var displayName: String {
-        if let h = hostname, !h.isEmpty { return h }
-        if let s = sharingname, !s.isEmpty { return s }
+        if let h = hostname, !h.isEmpty { return h.unmojibake() }
+        if let s = sharingname, !s.isEmpty { return s.unmojibake() }
         return "BlueSky #\(blueskyid)"
     }
 

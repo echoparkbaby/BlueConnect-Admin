@@ -14,6 +14,9 @@ struct ContentView: View {
     @State private var searchText: String = ""
     @State private var selection: Set<BlueSkyHost.ID> = []
     @Environment(SCPController.self) private var scpController
+    @Environment(PackageCatalogStore.self) private var packageCatalog
+    @Environment(InstallController.self) private var installer
+    @Environment(PackagePickerController.self) private var packagePicker
     @Environment(\.openWindow) private var openWindow
     @State private var showingSettingsSheet = false
     @State private var sortOrder: [KeyPathComparator<BlueSkyHost>] = [
@@ -32,6 +35,31 @@ struct ContentView: View {
     @State private var deleteChooserHosts: [BlueSkyHost] = []
     @State private var pendingTerminalScpHost: BlueSkyHost?
     @State private var showingTerminalScpPicker = false
+    /// Hosts captured when the user opens the package picker window —
+    /// stashed alongside the controller so install intents from the
+    /// (separate, movable) picker window can still target the right
+    /// hosts after the user moves around in the main window.
+    @State private var packagePickerHosts: [BlueSkyHost] = []
+    @State private var installFileHost: BlueSkyHost?
+    @State private var showingInstallFilePicker = false
+    @State private var pendingAppInstall: (host: BlueSkyHost, url: URL)?
+    @State private var showingUploadOnlyPicker = false
+    @State private var eraseInstallTarget: BlueSkyHost?
+    @State private var quickActionTarget: QuickActionTarget?
+    @State private var showingMunkiBrowser = false
+    @State private var munkiReportInventoryHost: BlueSkyHost?
+    /// Shared Munki repo store — held at the ContentView level so the
+    /// sidebar count + the picker + the browser all see the same fetched
+    /// catalog without re-fetching independently.
+    @State private var munkiStore = MunkiRepoStore()
+
+    /// Wrapper so `.sheet(item:)` can identify the pending action — the
+    /// id changes any time host or action changes.
+    private struct QuickActionTarget: Identifiable {
+        let host: BlueSkyHost
+        let action: QuickAction
+        var id: String { "\(host.blueskyid)|\(action.id)" }
+    }
     @FocusState private var searchFocused: Bool
     @AppStorage("sidebarFilter") private var sidebarFilterRaw: String = "all"
     @SceneStorage("hostsTableColumns") private var columnCustomization: TableColumnCustomization<BlueSkyHost>
@@ -111,6 +139,15 @@ struct ContentView: View {
         bodyWithPresentations
             .alert(item: $alert) { content in alertView(for: content) }
             .task { await autoRefreshLoop() }
+            .task {
+                // Hydrate the Munki cache from disk so the sidebar count
+                // and the browser open instantly; refresh in background
+                // only when the cache is stale.
+                if settings.isMunkiRepoConfigured {
+                    munkiStore.loadFromCacheIfPresent(settings: settings)
+                    Task { await munkiStore.refresh(settings: settings) }
+                }
+            }
             .onChange(of: hostStore.lastResponse) { _, newValue in handleResponseChange(newValue) }
             .onChange(of: settings.notifyOnStateChange) { _, newValue in
                 if newValue { notifier.requestAuthorizationIfNeeded() }
@@ -137,6 +174,14 @@ struct ContentView: View {
             ssh:  { if let h = target, h.active { runQuickAction(host: h, kind: .ssh) } },
             vnc:  { if let h = target, h.active { runQuickAction(host: h, kind: .vnc) } },
             scp:  { if let h = target, h.active { runQuickAction(host: h, kind: .scp) } },
+            installPackage: {
+                if let h = target { openPackagePicker(for: [h]) }
+            },
+            uploadToRepo: { showingUploadOnlyPicker = true },
+            eraseInstall: {
+                if let h = target { eraseInstallTarget = h }
+            },
+            browseMunkiRepo: { showingMunkiBrowser = true },
             refresh: { Task { await hostStore.refresh(settings: settings) } },
             focusSearch: { searchFocused = true },
             toggleFavorite: {
@@ -144,7 +189,9 @@ struct ContentView: View {
                     Task { await setFavorite(!h.isFavorite, on: [h]) }
                 }
             },
-            showLog: { terminals.activeSelection = .log }
+            showLog: { terminals.activeSelection = .log },
+            hasPackages: !(packageCatalog.catalog?.packages.isEmpty ?? true),
+            hasMunkiRepo: settings.isMunkiRepoConfigured
         )
     }
 
@@ -192,6 +239,98 @@ struct ContentView: View {
         }
         .fileImporter(isPresented: $showingTerminalScpPicker, allowedContentTypes: [.item],
                       onCompletion: handleTerminalScpPicker)
+        .fileImporter(isPresented: $showingInstallFilePicker,
+                      allowedContentTypes: [
+                        UTType(filenameExtension: "pkg") ?? .data,
+                        UTType(filenameExtension: "dmg") ?? .data,
+                        .application,
+                      ]) { result in
+            if case .success(let url) = result, let h = installFileHost {
+                let ext = url.pathExtension.lowercased()
+                if ext == "app" {
+                    pendingAppInstall = (host: h, url: url)
+                } else {
+                    installLocalPackage(url: url, on: h)
+                }
+            }
+            installFileHost = nil
+        }
+        .fileImporter(isPresented: $showingUploadOnlyPicker,
+                      allowedContentTypes: [
+                        UTType(filenameExtension: "pkg") ?? .data,
+                        UTType(filenameExtension: "dmg") ?? .data,
+                        .application,
+                      ]) { result in
+            if case .success(let url) = result {
+                handlePackagePickerDrop(url: url, hosts: [])  // upload-only, no install
+            }
+        }
+        .confirmationDialog(
+            "Install \(pendingAppInstall?.url.lastPathComponent ?? "")?",
+            isPresented: Binding(
+                get: { pendingAppInstall != nil },
+                set: { if !$0 { pendingAppInstall = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: pendingAppInstall
+        ) { pair in
+            Button("Compress to DMG") {
+                installAppWithMode(url: pair.url, on: pair.host, mode: .compress)
+                pendingAppInstall = nil
+            }
+            Button("Send Raw") {
+                installAppWithMode(url: pair.url, on: pair.host, mode: .raw)
+                pendingAppInstall = nil
+            }
+            Button("Cancel", role: .cancel) { pendingAppInstall = nil }
+        }
+        .sheet(item: $eraseInstallTarget) { h in
+            EraseInstallSheet(host: h) { spec in
+                runEraseInstall(host: h, spec: spec)
+            }
+            .environmentObject(settings)
+        }
+        .sheet(item: $quickActionTarget) { target in
+            QuickActionSheet(host: target.host, action: target.action) { command in
+                runQuickAction(host: target.host,
+                               action: target.action,
+                               command: command)
+            }
+        }
+        // The Install Package window is a top-level Scene (see
+        // BlueConnectApp.swift) so it can be moved + resized. ContentView
+        // reacts here to install intents written by that window into the
+        // shared `packagePicker` controller. Clear-after-dispatch so each
+        // pick fires exactly once even if the window stays open.
+        .onChange(of: packagePicker.pendingDirectInstall) { _, pkg in
+            guard let pkg = pkg else { return }
+            for h in packagePicker.hosts where h.active {
+                installPackage(pkg, on: h)
+            }
+            packagePicker.pendingDirectInstall = nil
+        }
+        .onChange(of: packagePicker.pendingMunkiInstall) { _, pkg in
+            guard let pkg = pkg else { return }
+            for h in packagePicker.hosts where h.active {
+                installMunkiPackage(pkg, on: h)
+            }
+            packagePicker.pendingMunkiInstall = nil
+        }
+        .onChange(of: packagePicker.pendingFileDrop) { _, url in
+            guard let url = url else { return }
+            handlePackagePickerDrop(url: url, hosts: packagePicker.hosts)
+            packagePicker.pendingFileDrop = nil
+        }
+        .sheet(isPresented: $showingMunkiBrowser) {
+            MunkiBrowserView(store: munkiStore)
+                .environmentObject(settings)
+                .environment(hostStore)
+                .environment(packagePicker)
+        }
+        .sheet(item: $munkiReportInventoryHost) { h in
+            MunkiReportInventoryView(host: h)
+                .environmentObject(settings)
+        }
     }
 
     private func handleResponseChange(_ newValue: BlueSkyHostsResponse?) {
@@ -287,7 +426,9 @@ struct ContentView: View {
                 onFavorite: { ids in
                     let hosts = hostStore.hosts.filter { ids.contains($0.blueskyid) }
                     Task { await setFavorite(true, on: hosts) }
-                }
+                },
+                onOpenMunkiBrowser: { showingMunkiBrowser = true },
+                munkiStore: munkiStore
             )
             .frame(minWidth: 180, idealWidth: 220, maxWidth: 280)
 
@@ -456,6 +597,11 @@ struct ContentView: View {
                                       enabled: h.active, help: "File Upload (SCP)") {
                         runQuickAction(host: h, kind: .scp)
                     }
+                    QuickActionButton(icon: "shippingbox.fill", color: .purple,
+                                      enabled: h.active && hasPackageCatalog,
+                                      help: "Install Package") {
+                        openPackagePicker(for: [h])
+                    }
                 }
             }
             .width(min: 100, ideal: 110, max: 130)
@@ -486,9 +632,16 @@ struct ContentView: View {
                 TableRow(h)
                     .draggable(dragPayload(for: h))
                     .dropDestination(for: URL.self) { urls in
-                        guard let url = urls.first else { return }
-                        scpController.begin(with: h, source: url)
-                        openWindow(id: "scp-transfer")
+                        guard let url = urls.first, h.active else { return }
+                        let ext = url.pathExtension.lowercased()
+                        if ext == "pkg" || ext == "dmg" {
+                            installLocalPackage(url: url, on: h)
+                        } else if ext == "app" {
+                            pendingAppInstall = (host: h, url: url)
+                        } else {
+                            scpController.begin(with: h, source: url)
+                            openWindow(id: "scp-transfer")
+                        }
                     }
             }
         }
@@ -523,11 +676,95 @@ struct ContentView: View {
                     }
                 }
                 Divider()
-                Button("Send Delete Command (selfdestruct)") {
-                    alert = .singleAction(host: h, action: .selfdestruct)
+                Menu("Install") {
+                    Button("Local .pkg / .dmg…") {
+                        installFileHost = h
+                        showingInstallFilePicker = true
+                    }
+                    .disabled(!h.active)
+                    if let cat = packageCatalog.catalog, !cat.packages.isEmpty {
+                        Button("From Repo Picker…") {
+                            openPackagePicker(for: [h])
+                        }
+                        .disabled(!h.active)
+                        Menu("Quick Install (Direct)") {
+                            ForEach(Array(cat.grouped.enumerated()), id: \.offset) { _, section in
+                                if section.group.isEmpty {
+                                    ForEach(section.items) { pkg in
+                                        Button {
+                                            installPackage(pkg, on: h)
+                                        } label: {
+                                            Label(pkg.name, systemImage: pkg.resolvedIcon)
+                                        }
+                                    }
+                                } else {
+                                    Section(section.group) {
+                                        ForEach(section.items) { pkg in
+                                            Button {
+                                                installPackage(pkg, on: h)
+                                            } label: {
+                                                Label(pkg.name, systemImage: pkg.resolvedIcon)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        .disabled(!h.active)
+                    } else if settings.isMunkiRepoConfigured {
+                        // No Direct catalog, but Munki is. Surface a shortcut
+                        // straight to the Munki tab of the picker.
+                        Button("From Munki Repo…") {
+                            openPackagePicker(for: [h])
+                        }
+                        .disabled(!h.active)
+                    }
                 }
-                Button("Delete from Database…", role: .destructive) {
-                    alert = .singleAction(host: h, action: .delete)
+                Menu("Software Inventory") {
+                    if settings.isMunkiReportAPIConfigured {
+                        Button("MunkiReport Stats…") {
+                            munkiReportInventoryHost = h
+                        }
+                        .disabled((h.serialnum ?? "").isEmpty)
+                    }
+                    if !settings.munkiReportURL.isEmpty {
+                        Button("Open in MunkiReport (browser)") {
+                            openMunkiReport(for: h)
+                        }
+                        .disabled((h.serialnum ?? "").isEmpty)
+                    }
+                    if settings.isMunkiRepoConfigured {
+                        Button("Browse Munki Repo…") {
+                            showingMunkiBrowser = true
+                        }
+                    }
+                }
+                .disabled(settings.munkiReportURL.isEmpty && !settings.isMunkiRepoConfigured)
+                Menu("Maintenance") {
+                    Menu("Quick Admin Actions") {
+                        ForEach(Array(QuickAction.grouped.enumerated()), id: \.offset) { _, group in
+                            Section(group.0.rawValue) {
+                                ForEach(group.1) { action in
+                                    Button(action.label) {
+                                        quickActionTarget = QuickActionTarget(host: h, action: action)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Button("Erase / Reinstall macOS…", role: .destructive) {
+                        eraseInstallTarget = h
+                    }
+                }
+                .disabled(!h.active)
+                Divider()
+                Menu("Danger Zone") {
+                    Button("Send Delete Command (selfdestruct)") {
+                        alert = .singleAction(host: h, action: .selfdestruct)
+                    }
+                    Button("Delete from Database…", role: .destructive) {
+                        alert = .singleAction(host: h, action: .delete)
+                    }
                 }
             } else if menuTargets.count > 1 {
                 Menu("Set Category for \(menuTargets.count) Hosts") {
@@ -543,6 +780,12 @@ struct ContentView: View {
                         categoryTargets = menuTargets
                         showingCategorySheet = true
                     }
+                }
+                if let cat = packageCatalog.catalog, !cat.packages.isEmpty {
+                    Button("Install Package on \(menuTargets.count) Hosts…") {
+                        openPackagePicker(for: menuTargets)
+                    }
+                    .disabled(!menuTargets.contains(where: \.active))
                 }
                 Divider()
                 Button("Send Delete Command to \(menuTargets.count) Hosts") {
@@ -614,6 +857,10 @@ struct ContentView: View {
         return DragPayload.hosts([host.blueskyid])
     }
 
+    private var hasPackageCatalog: Bool {
+        !(packageCatalog.catalog?.packages.isEmpty ?? true)
+    }
+
     private enum QuickActionKind: String { case ssh, vnc, scp }
 
     private func runQuickAction(host: BlueSkyHost, kind: QuickActionKind) {
@@ -659,6 +906,186 @@ struct ContentView: View {
             pendingTerminalScpHost = host
             showingTerminalScpPicker = true
         }
+    }
+
+    /// Handler for files dropped onto the Package Picker sheet. Installs
+    /// the file on every selected active host. If `packageUploadSCPPath`
+    /// is configured, also scp's it to the catalog backend and refreshes
+    /// the catalog so the new file appears permanently.
+    private func handlePackagePickerDrop(url: URL, hosts: [BlueSkyHost]) {
+        let activeHosts = hosts.filter(\.active)
+        let ext = url.pathExtension.lowercased()
+
+        // 1. Install side — only runs if at least one host is targeted.
+        if !activeHosts.isEmpty {
+            if ext == "app" {
+                // First host kicks off the compress-vs-raw confirmation.
+                if let h = activeHosts.first {
+                    pendingAppInstall = (host: h, url: url)
+                }
+            } else {
+                for h in activeHosts {
+                    installLocalPackage(url: url, on: h)
+                }
+            }
+        }
+
+        // 2. Repo upload side — runs regardless of host selection.
+        if !settings.isPackageRepoConfigured {
+            alert = .result(
+                title: "Package Repo not configured",
+                message: "Open Settings → Package Repo, pick a service (SSH / FTP / Nextcloud) and fill in its fields. The file was \(activeHosts.isEmpty ? "not installed and not uploaded — nothing happened." : "installed on \(activeHosts.count) host\(activeHosts.count == 1 ? "" : "s") but NOT uploaded to the repo.")"
+            )
+            return
+        }
+
+        Task {
+            let err = await packageCatalog.upload(
+                localFile: url,
+                scpPath: settings.packageRepoUploadURL,
+                keyPath: settings.expandedPackageUploadKeyPath,
+                service: settings.packageRepoService,
+                catalogURL: settings.packageCatalogURL
+            )
+            if let err {
+                alert = .result(title: "Repo upload failed", message: err)
+            } else {
+                alert = .result(
+                    title: "Added to repo",
+                    message: "\(url.lastPathComponent) is now in your repo. It will show up in the picker on the next refresh."
+                )
+            }
+        }
+    }
+
+    /// Open the host's page on the configured MunkiReport server in the
+    /// default browser. MunkiReport-php 5.x doesn't expose a usable REST
+    /// API for external clients, so this is the most useful integration
+    /// without scraping the session-auth web UI.
+    private func openMunkiReport(for host: BlueSkyHost) {
+        guard let serial = host.serialnum, !serial.isEmpty else { return }
+        let root = settings.munkiReportURL.trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
+        guard !root.isEmpty else { return }
+        let urlString = "\(root)/clients/show/\(serial)"
+        if let url = URL(string: urlString) { NSWorkspace.shared.open(url) }
+    }
+
+    /// Run a `QuickAction`'s built command on the host via the standard
+    /// BSC ssh path. Output streams into a terminal tab named with the
+    /// action's `tabLabel`.
+    private func runQuickAction(host: BlueSkyHost, action: QuickAction, command: String) {
+        recents.recordConnect(blueskyid: host.blueskyid)
+        let svc = ConnectionService(
+            server: settings.serverFqdn,
+            adminKeyPath: settings.expandedKeyPath,
+            serverSshPort: settings.sshTunnelPort,
+            terminals: terminals
+        )
+        svc.openRemoteCommand(host: host,
+                              remoteUser: settings.defaultRemoteUser,
+                              command: command,
+                              label: action.tabLabel)
+    }
+
+    /// Build the erase-install bash command (full flag set) and run it
+    /// on the host via the existing one-shot ssh helper. Output streams
+    /// into a terminal tab named `reinstall: <host>` / `erase: <host>` /
+    /// `list: <host>` / `test-run: <host>` per chosen mode.
+    private func runEraseInstall(host: BlueSkyHost, spec: EraseInstallSheet.RunSpec) {
+        recents.recordConnect(blueskyid: host.blueskyid)
+        EraseInstallSheet.pushRecent(spec: spec,
+                                     hostName: host.displayName,
+                                     settings: settings)
+        let command = EraseInstallSheet.buildCommand(
+            spec: spec,
+            scriptPath: settings.eraseInstallPath,
+            defaultFlags: settings.eraseInstallDefaultFlags
+        )
+        let svc = ConnectionService(
+            server: settings.serverFqdn,
+            adminKeyPath: settings.expandedKeyPath,
+            serverSshPort: settings.sshTunnelPort,
+            terminals: terminals
+        )
+        let label: String
+        switch spec.mode {
+        case .reinstall: label = "reinstall"
+        case .erase:     label = "erase"
+        case .list:      label = "list"
+        case .testRun:   label = "test-run"
+        }
+        svc.openRemoteCommand(host: host,
+                              remoteUser: settings.defaultRemoteUser,
+                              command: command,
+                              label: label)
+    }
+
+    /// Hand off a local .pkg / .dmg / .app to the install controller
+    /// and open the progress window. The window shows source/target,
+    /// asks for a sudo password if needed, then runs phased install
+    /// with a progress bar — no terminal tab spam.
+    private func installLocalPackage(url: URL, on host: BlueSkyHost) {
+        beginInstallWindow(url: url, on: host, appMode: .compress)
+    }
+
+    private func installAppWithMode(url: URL, on host: BlueSkyHost,
+                                    mode: InstallController.AppMode) {
+        beginInstallWindow(url: url, on: host, appMode: mode)
+    }
+
+    private func beginInstallWindow(url: URL, on host: BlueSkyHost,
+                                    appMode: InstallController.AppMode) {
+        recents.recordConnect(blueskyid: host.blueskyid)
+        installer.prepare(host: host, localFile: url, appMode: appMode)
+        openWindow(id: "install-progress")
+    }
+
+    /// Fetch a Munki .pkg/.dmg from the configured S3 repo via SigV4 —
+    /// streamed straight to a tempfile by curl in a detached task so the
+    /// main actor stays responsive — then funnel it into the existing
+    /// local-file install path (drop / picker).
+    private func installMunkiPackage(_ pkg: MunkiPkg, on host: BlueSkyHost) {
+        guard let loc = pkg.installerItemLocation, !loc.isEmpty else {
+            alert = .result(title: "Munki Install",
+                            message: "This pkginfo has no installer_item_location — nothing to download.")
+            return
+        }
+        let ext = (loc as NSString).pathExtension.isEmpty
+            ? "pkg" : (loc as NSString).pathExtension
+        let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("bcadmin-munki-\(UUID().uuidString).\(ext)")
+        Task {
+            do {
+                try await munkiStore.fetch(key: "pkgs/\(loc)", to: tmp, settings: settings)
+                installLocalPackage(url: tmp, on: host)
+            } catch {
+                alert = .result(title: "Munki Fetch Failed",
+                                message: error.localizedDescription)
+            }
+        }
+    }
+
+    /// Present the floating Install Package window for these hosts.
+    private func openPackagePicker(for hosts: [BlueSkyHost]) {
+        packagePickerHosts = hosts
+        packagePicker.present(hosts: hosts)
+        openWindow(id: "package-picker")
+    }
+
+    private func installPackage(_ pkg: Package, on host: BlueSkyHost) {
+        guard let cat = packageCatalog.catalog,
+              let cmd = cat.remoteCommand(for: pkg) else { return }
+        recents.recordConnect(blueskyid: host.blueskyid)
+        let svc = ConnectionService(
+            server: settings.serverFqdn,
+            adminKeyPath: settings.expandedKeyPath,
+            serverSshPort: settings.sshTunnelPort,
+            terminals: terminals
+        )
+        svc.openRemoteCommand(host: host,
+                              remoteUser: settings.defaultRemoteUser,
+                              command: cmd,
+                              label: "install: \(pkg.name)")
     }
 
     private func assignCategoryDirect(_ category: String?, to hosts: [BlueSkyHost]) {

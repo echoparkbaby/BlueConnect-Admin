@@ -18,6 +18,10 @@ struct BlueConnectAdminApp: App {
     @State private var rendezvous = LocalRendezvousBrowser()
     @State private var tailscale = TailscaleBrowser()
     @State private var scp = SCPController()
+    @State private var packageCatalog = PackageCatalogStore()
+    @State private var installer = InstallController()
+    @State private var packagePicker = PackagePickerController()
+    @State private var mrInventory = MunkiReportInventoryStore()
 
     var body: some Scene {
         WindowGroup("BlueConnect Admin") {
@@ -33,14 +37,24 @@ struct BlueConnectAdminApp: App {
             .environment(rendezvous)
             .environment(tailscale)
             .environment(scp)
+            .environment(packageCatalog)
+            .environment(installer)
+            .environment(packagePicker)
+            .environment(mrInventory)
             .task {
                 Log.info("App", "BlueConnect Admin starting")
                 auth.bootstrap(settings: settings)
                 idleLock.start(auth: auth, settings: settings)
+                settings.loadRepoPasswordsFromKeychain()
+                settings.loadMunkiSecretFromKeychain()
+                settings.loadMunkiReportTokenFromKeychain()
                 if settings.localNetworkEnabled { rendezvous.start() }
                 tailscale.settings = settings
                 if settings.tailscaleEnabled { tailscale.start() }
                 MainWindowGuard.shared.install(terminals: terminals)
+                if !settings.packageCatalogURL.isEmpty {
+                    await packageCatalog.refresh(urlString: settings.packageCatalogURL)
+                }
             }
             .onChange(of: settings.localNetworkEnabled) { _, enabled in
                 if enabled { rendezvous.start() } else { rendezvous.stop() }
@@ -115,6 +129,9 @@ struct BlueConnectAdminApp: App {
                 .environmentObject(settings)
                 .environmentObject(auth)
                 .environment(hosts)
+                .environment(packageCatalog)
+                .environment(packagePicker)
+                .environment(mrInventory)
         }
 
         // Standalone, draggable, non-modal window for SCP file transfers.
@@ -138,6 +155,28 @@ struct BlueConnectAdminApp: App {
             }
         }
         .defaultSize(width: 800, height: 480)
+
+        // Ad-hoc package install window — replaces the previous "spew
+        // output into a terminal tab" install flow. Driven by InstallController.
+        Window("Install Package", id: "install-progress") {
+            InstallProgressWindow()
+                .environmentObject(settings)
+                .environment(installer)
+        }
+        .windowResizability(.contentSize)
+        .defaultPosition(.center)
+
+        // The package picker — was previously a `.sheet` glued to the
+        // main window. Now a standalone resizable + movable window so the
+        // user can park it next to the host list while picking installs.
+        Window("Install Package…", id: "package-picker") {
+            PackagePickerWindow()
+                .environmentObject(settings)
+                .environment(packageCatalog)
+                .environment(packagePicker)
+        }
+        .windowResizability(.contentSize)
+        .defaultPosition(.center)
 
         MenuBarExtra {
             MenuBarContent()
