@@ -1,0 +1,88 @@
+# BlueSkyConnect + BlueConnect Admin reference deployment.
+#
+# Layout:
+#   examples/bluesky/
+#   ├── compose.yml                    ← this file
+#   ├── .env                           ← copy from .env.example and fill in
+#   └── (created on first run / via deploy-server.sh):
+#       db/                            ← MySQL data
+#       certs/                         ← TLS certs
+#       admin.ssh/                     ← /home/admin/.ssh keys
+#       bluesky.ssh/                   ← /home/bluesky/.ssh — your fleet's pubkeys
+#       bs_*.json.php                  ← the 5 BlueConnect Admin endpoints
+#       sendEmail-whois-lines.local    ← optional fail2ban override
+#
+# Quick start:
+#   1. cp .env.example .env  &&  $EDITOR .env       # fill in passwords
+#   2. mkdir db certs admin.ssh bluesky.ssh         # create bind-mount dirs
+#   3. From the BlueConnect repo root on your Mac:
+#        ./deploy-server.sh <user>@<host>           # ships the bs_*.php files + migrations
+#   4. docker compose up -d
+#   5. One-time SQL migration (only on stock sphen/bluesky):
+#        docker compose exec -T db mysql -uroot -p"$MYSQL_ROOT_PASSWORD" bluesky \
+#            < migrations/2026-05-14-computers-blueconnect-columns.sql
+#
+# Reverse-proxy / TLS: this compose runs the BSC HTTP server on port 8095
+# (USE_HTTP=1) — front it with nginx-proxy-manager / Caddy / Traefik for
+# Let's Encrypt. Port 3122 must be exposed publicly for Mac clients'
+# reverse-tunnel SSH; everything else can be LAN-only.
+
+services:
+  db:
+    image: mysql:5.7
+    container_name: bluesky_db
+    restart: always
+    environment:
+      MYSQL_ROOT_HOST: "%"
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    volumes:
+      - ./db:/var/lib/mysql
+    networks: [bluesky_net]
+
+  bluesky:
+    image: sphen/bluesky:dev2xx   # or :v2.3.2 for the stable upstream tag
+    container_name: bluesky
+    restart: always
+    cap_add: [NET_ADMIN]          # required for fail2ban
+    depends_on: [db]
+    environment:
+      SERVERFQDN: ${SERVERFQDN}
+      MYSQLSERVER: db
+      INSECURE_CIPHERS: "1"        # legacy Mac clients on older sshd builds
+      IN_DOCKER: "1"
+      FAIL2BAN: "1"
+      USE_HTTP: "1"                # NPM / Caddy in front handles TLS
+      EMAILALERT: ${EMAILALERT}
+      SMTP_SERVER: ${SMTP_SERVER}
+      SMTP_AUTH: ${SMTP_AUTH}
+      SMTP_PASS: ${SMTP_PASS}
+      WEBADMINPASS: ${WEBADMINPASS}
+      BLUESKY_VERSION: ${BLUESKY_VERSION}
+      MYSQLROOTPASS: ${MYSQL_ROOT_PASSWORD}
+    volumes:
+      # Stateful directories
+      - ./certs:/certs
+      - ./admin.ssh:/home/admin/.ssh
+      - ./bluesky.ssh:/home/bluesky/.ssh
+
+      # BlueConnect Admin endpoints — individual FILE mounts (not a dir
+      # mount) so we overlay just these five into the container's stock
+      # /html/ without shadowing everything else BSC ships there. Yes,
+      # this looks chaotic. It's the cleanest way to layer custom
+      # endpoints onto a stock upstream image.
+      - ./bs_hosts.json.php:/usr/local/bin/BlueSkyConnect/Server/html/bs_hosts.json.php:ro
+      - ./bs_categories.json.php:/usr/local/bin/BlueSkyConnect/Server/html/bs_categories.json.php:ro
+      - ./bs_health.json.php:/usr/local/bin/BlueSkyConnect/Server/html/bs_health.json.php:ro
+      - ./bs_host_action.json.php:/usr/local/bin/BlueSkyConnect/Server/html/bs_host_action.json.php:ro
+      - ./bs_host_update.json.php:/usr/local/bin/BlueSkyConnect/Server/html/bs_host_update.json.php:ro
+
+      # Optional: custom fail2ban action that includes WHOIS context in
+      # alert emails. Drop the file if you don't need it.
+      - ./sendEmail-whois-lines.local:/etc/fail2ban/action.d/sendEmail-whois-lines.local:ro
+    ports:
+      - "3122:3122"        # Mac client reverse-tunnel SSH — PUBLIC
+      - "8095:80"          # BSC web UI — proxy through NPM/Caddy/Traefik
+    networks: [bluesky_net]
+
+networks:
+  bluesky_net:

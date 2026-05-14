@@ -68,6 +68,8 @@ server/
 
 Stock BlueSkyConnect ships an HTML admin UI but no JSON API. This Mac app needs five small read-mostly PHP endpoints (in `server/`) deployed once to your BSC server's web root. They don't change BSC's behavior — they translate the existing database state into JSON.
 
+> **Setting up BSC from scratch?** A working `docker-compose.yml` + `.env.example` + step-by-step README is in [`examples/bluesky/`](examples/bluesky/). Copy that template if you don't already have a BSC stack running.
+
 The fastest deploy is the included `deploy-server.sh`:
 
 ```sh
