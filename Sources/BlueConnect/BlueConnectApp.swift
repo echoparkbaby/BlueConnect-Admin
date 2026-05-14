@@ -22,6 +22,7 @@ struct BlueConnectAdminApp: App {
     @State private var installer = InstallController()
     @State private var packagePicker = PackagePickerController()
     @State private var mrInventory = MunkiReportInventoryStore()
+    @StateObject private var quickActionStore = QuickActionStore()
 
     var body: some Scene {
         WindowGroup("BlueConnect Admin") {
@@ -41,6 +42,7 @@ struct BlueConnectAdminApp: App {
             .environment(installer)
             .environment(packagePicker)
             .environment(mrInventory)
+            .environmentObject(quickActionStore)
             .task {
                 Log.info("App", "BlueConnect Admin starting")
                 auth.bootstrap(settings: settings)
@@ -91,38 +93,23 @@ struct BlueConnectAdminApp: App {
                     ])
                 }
             }
-            CommandMenu("Security") {
+            // "Lock Now" now lives in the Edit menu (was a standalone
+            // "Security" menu). Tucked under .textEditing so it sits at
+            // the bottom of Edit, separated by a Divider.
+            CommandGroup(after: .textEditing) {
+                Divider()
                 Button("Lock Now") { auth.lock() }
                     .keyboardShortcut("L", modifiers: [.command, .shift])
                     .disabled(!auth.requireTouchID)
             }
-            CommandMenu("View") {
+            // Single "View" menu — replaces both the system-injected one
+            // and the previous custom one that contained only "Show Log".
+            CommandGroup(replacing: .toolbar) {
                 Button("Show Log") { terminals.activeSelection = .log }
                     .keyboardShortcut("\\", modifiers: [.command])
             }
             ConnectCommands()
-            CommandMenu("Terminal") {
-                Button("Previous Tab") { terminals.selectPrevious() }
-                    .keyboardShortcut("[", modifiers: [.command, .shift])
-                    .disabled(terminals.sessions.count < 2)
-                Button("Next Tab") { terminals.selectNext() }
-                    .keyboardShortcut("]", modifiers: [.command, .shift])
-                    .disabled(terminals.sessions.count < 2)
-                Divider()
-                // ⌘W is intercepted globally by `MainWindowGuard` (NSEvent
-                // local monitor) — see installation in `.task` below. The
-                // monitor swallows ⌘W on the main window unconditionally,
-                // closing the active tab if one is open. Auxiliary windows
-                // (Settings, Send File) keep their default ⌘W = close.
-                // The menu item below is for discoverability only and has
-                // no shortcut, since the monitor handles it.
-                Button("Close Tab") {
-                    if let id = terminals.activeSessionID { terminals.close(id) }
-                }
-                Button("Close All Tabs") { terminals.closeAll() }
-                    .keyboardShortcut("w", modifiers: [.command, .shift])
-                    .disabled(terminals.sessions.isEmpty)
-            }
+            QuickActionsCommands()
         }
         Settings {
             SettingsView()
@@ -132,6 +119,7 @@ struct BlueConnectAdminApp: App {
                 .environment(packageCatalog)
                 .environment(packagePicker)
                 .environment(mrInventory)
+                .environmentObject(quickActionStore)
         }
 
         // Standalone, draggable, non-modal window for SCP file transfers.
@@ -158,13 +146,18 @@ struct BlueConnectAdminApp: App {
 
         // Ad-hoc package install window — replaces the previous "spew
         // output into a terminal tab" install flow. Driven by InstallController.
-        Window("Install Package", id: "install-progress") {
+        // .commandsRemoved() suppresses the auto "Install Package" entry
+        // SwiftUI would otherwise add to the Window menu — the picker
+        // window owns that label (with the ellipsis), so the progress
+        // window's duplicate listing is hidden.
+        Window("Install Progress", id: "install-progress") {
             InstallProgressWindow()
                 .environmentObject(settings)
                 .environment(installer)
         }
         .windowResizability(.contentSize)
         .defaultPosition(.center)
+        .commandsRemoved()
 
         // The package picker — was previously a `.sheet` glued to the
         // main window. Now a standalone resizable + movable window so the

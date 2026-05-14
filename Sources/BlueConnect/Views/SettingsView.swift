@@ -36,7 +36,7 @@ struct SettingsView: View {
     enum Section: String, CaseIterable, Identifiable {
         case account, security, sshTunnel, defaults, discovery,
              tailscaleDefaults, packageRepo, eraseInstall,
-             munkiRepo, munkiReport,
+             munkiRepo, munkiReport, quickActions,
              notifications, about
 
         var id: String { rawValue }
@@ -52,6 +52,7 @@ struct SettingsView: View {
             case .eraseInstall:     return "Erase Install"
             case .munkiRepo:        return "Munki Repo"
             case .munkiReport:      return "MunkiReport"
+            case .quickActions:     return "Quick Actions"
             case .notifications:    return "Notifications"
             case .about:            return "About"
             }
@@ -68,6 +69,7 @@ struct SettingsView: View {
             case .eraseInstall:     return "arrow.triangle.2.circlepath.icloud"
             case .munkiRepo:        return "cube.box"
             case .munkiReport:      return "chart.bar.doc.horizontal"
+            case .quickActions:     return "bolt.fill"
             case .notifications:    return "bell"
             case .about:            return "info.circle"
             }
@@ -142,6 +144,7 @@ struct SettingsView: View {
         case .eraseInstall:     eraseInstallPane
         case .munkiRepo:        munkiRepoPane
         case .munkiReport:      munkiReportPane
+        case .quickActions:     quickActionsPane
         case .notifications:    notificationsPane
         case .about:            aboutPane
         }
@@ -500,6 +503,10 @@ struct SettingsView: View {
         } catch {
             munkiTestResult = .failure(error.localizedDescription)
         }
+    }
+
+    private var quickActionsPane: some View {
+        QuickActionsSettingsPane()
     }
 
     private var munkiReportPane: some View {

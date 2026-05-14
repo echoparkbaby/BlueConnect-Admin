@@ -17,6 +17,7 @@ struct ContentView: View {
     @Environment(PackageCatalogStore.self) private var packageCatalog
     @Environment(InstallController.self) private var installer
     @Environment(PackagePickerController.self) private var packagePicker
+    @EnvironmentObject private var quickActionStore: QuickActionStore
     @Environment(\.openWindow) private var openWindow
     @State private var showingSettingsSheet = false
     @State private var sortOrder: [KeyPathComparator<BlueSkyHost>] = [
@@ -154,6 +155,7 @@ struct ContentView: View {
             }
             .onChange(of: hostStore.lastError) { _, newValue in handleLastErrorChange(newValue) }
             .focusedSceneValue(\.hostActions, currentHostActions)
+            .focusedSceneValue(\.terminalCommands, currentTerminalCommands)
             .modifier(FilteredAndSortedCacheInvalidator(
                 recompute: { filteredAndSorted = computeFilteredAndSorted() },
                 hosts: hostStore.hosts,
@@ -190,8 +192,28 @@ struct ContentView: View {
                 }
             },
             showLog: { terminals.activeSelection = .log },
+            runQuickAction: { action in
+                if let h = target {
+                    quickActionTarget = QuickActionTarget(host: h, action: action)
+                }
+            },
             hasPackages: !(packageCatalog.catalog?.packages.isEmpty ?? true),
             hasMunkiRepo: settings.isMunkiRepoConfigured
+        )
+    }
+
+    /// Bridge for the Connect menu's terminal-tab tail. Same focused-
+    /// value pattern as `currentHostActions`.
+    private var currentTerminalCommands: TerminalCommands {
+        TerminalCommands(
+            previousTab: { terminals.selectPrevious() },
+            nextTab: { terminals.selectNext() },
+            closeActiveTab: {
+                if let id = terminals.activeSessionID { terminals.close(id) }
+            },
+            closeAllTabs: { terminals.closeAll() },
+            hasMultiple: terminals.sessions.count >= 2,
+            hasAny: !terminals.sessions.isEmpty
         )
     }
 
@@ -742,9 +764,13 @@ struct ContentView: View {
                 .disabled(settings.munkiReportURL.isEmpty && !settings.isMunkiRepoConfigured)
                 Menu("Maintenance") {
                     Menu("Quick Admin Actions") {
-                        ForEach(Array(QuickAction.grouped.enumerated()), id: \.offset) { _, group in
-                            Section(group.0.rawValue) {
-                                ForEach(group.1) { action in
+                        // Reads from QuickActionStore so disabled actions
+                        // are hidden here too (and any user-defined
+                        // custom actions appear under their categories).
+                        ForEach(Array(quickActionStore.allEnabled.grouped.enumerated()),
+                                id: \.offset) { entry in
+                            Section(entry.element.0) {
+                                ForEach(entry.element.1) { action in
                                     Button(action.label) {
                                         quickActionTarget = QuickActionTarget(host: h, action: action)
                                     }

@@ -19,6 +19,9 @@ struct HostActions {
     let focusSearch: () -> Void
     let toggleFavorite: () -> Void
     let showLog: () -> Void
+    /// Triggered from the top-level Quick Actions menu. Caller fires the
+    /// existing QuickAction sheet flow against the current target host.
+    let runQuickAction: (QuickAction) -> Void
     /// True when a package catalog is loaded — gates ⌘4 / Install Package menu.
     let hasPackages: Bool
     /// True when Munki Repo creds are present — gates the Browse Munki Repo menu.
@@ -29,11 +32,29 @@ struct HostActions {
         ssh: {}, vnc: {}, scp: {}, installPackage: {}, uploadToRepo: {},
         eraseInstall: {}, browseMunkiRepo: {},
         refresh: {}, focusSearch: {}, toggleFavorite: {}, showLog: {},
+        runQuickAction: { _ in },
         hasPackages: false,
         hasMunkiRepo: false
     )
 }
 
+/// Tab-management bridge for the Connect menu's tail section. Lives here
+/// alongside HostActions because it's the same focused-value pattern.
+struct TerminalCommands {
+    let previousTab: () -> Void
+    let nextTab: () -> Void
+    let closeActiveTab: () -> Void
+    let closeAllTabs: () -> Void
+    let hasMultiple: Bool
+    let hasAny: Bool
+
+    static let none = TerminalCommands(
+        previousTab: {}, nextTab: {}, closeActiveTab: {}, closeAllTabs: {},
+        hasMultiple: false, hasAny: false
+    )
+}
+
 extension FocusedValues {
     @Entry var hostActions: HostActions? = nil
+    @Entry var terminalCommands: TerminalCommands? = nil
 }

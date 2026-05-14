@@ -40,6 +40,32 @@ Grab the latest signed and notarized `.dmg` from the [Releases page](../../relea
 
 ## Server setup
 
+The app has four integrations. Only **one is required** — the BlueSkyConnect endpoints. The other three (Direct Package Repo, Munki Repo, MunkiReport) are opt-in. Mix and match whatever you have.
+
+| Integration | Required? | What you have to deploy server-side |
+|---|---|---|
+| **BlueSkyConnect endpoints** | **yes** — the app reads its host list from here | 5 small PHP files (`server/bs_*.php`) on your BSC server |
+| **Direct Package Repo** | optional | One PHP file (`server/catalog.php`) in your `pkgs/` directory **OR** a static `catalog.json` |
+| **Munki Repo (Wasabi/S3)** | optional | **Nothing.** Uses your existing S3-compatible bucket. Just enter credentials in Settings. |
+| **MunkiReport API** | optional | One PHP file (`server/munkireport-module/blueconnect_api.php`) in your MR webroot + a token env var |
+
+Quick recap of every file shipped under `server/`:
+
+```
+server/
+├── bs_categories.json.php   ┐
+├── bs_health.json.php       │  BSC endpoints — deploy as a group
+├── bs_host_action.json.php  ├─ via deploy-server.sh
+├── bs_host_update.json.php  │
+├── bs_hosts.json.php        ┘
+├── catalog.php              — Optional: drop in Direct Package Repo's pkgs/ dir
+├── munkireport-module/
+│   └── blueconnect_api.php  — Optional: drop in MunkiReport's public/ dir
+└── migrations/              — Auto-run by BSC endpoints on first request
+```
+
+### 1. BlueSkyConnect endpoints (required)
+
 Stock BlueSkyConnect ships an HTML admin UI but no JSON API. This Mac app needs five small read-mostly PHP endpoints (in `server/`) deployed once to your BSC server's web root. They don't change BSC's behavior — they translate the existing database state into JSON.
 
 The fastest deploy is the included `deploy-server.sh`:
@@ -60,49 +86,70 @@ curl -i -u admin:$WEBADMINPASS https://<host>/bs_hosts.json.php
 
 If the app's login screen shows *"The server responded but doesn't have the BlueConnect Admin endpoints"*, that's the deploy step still missing.
 
-## Package Repo (optional)
+### 2. Direct Package Repo (optional)
 
-The Install Package feature is opt-in. If you want it, you need somewhere to host your `.pkg` / `.dmg` / `.app` installers and a JSON listing of them. The app talks to your repo over one of three protocols, picked in Settings → Package Repo:
+The simplest "Install Package" flow. You host `.pkg` / `.dmg` / `.app` installers somewhere with a JSON catalog listing them, and the app installs from those URLs over HTTPS. Good for hand-curated software where you control every file.
+
+**Picking an upload service** (Settings → Package Repo → Upload service):
 
 | Service | Auth | Best for |
 |---|---|---|
-| **SSH / SFTP** | SSH private key | Self-hosted shell server, Bluehost / shared hosting with SSH, any Linux box. |
+| **SSH / SFTP** | SSH private key | Self-hosted shell server, any Linux box. |
 | **FTP / FTPS** | Username + password (Keychain) | Legacy shared hosting, NAS units that only expose FTP. |
 | **Nextcloud (WebDAV)** | Username + app password (Keychain) | Nextcloud or ownCloud servers with a folder share. |
 
-### Hosting the catalog
+**Hosting the catalog** — two flavors:
 
-Two flavors of catalog file in the `server/` directory:
+- **`server/catalog.php`** — drop into your `pkgs/` directory on a PHP-capable host. Set **Repo URL** in Settings to `https://your-host/path/catalog.php`. On every request it scans the directory and emits JSON for every `.pkg` / `.dmg` it finds. Optional `metadata.json` sidecar adds friendly names, groups, descriptions, icons, and destructive flags.
+- **Static `catalog.json`** — generate locally with `tools/sync-catalog.sh` (rclone-based, works with any backend) and upload alongside the installers. Set **Repo URL** to `https://your-host/path/catalog.json`.
 
-- **`catalog.php`** — drop into your `pkgs/` directory on a PHP-capable host. On every request it scans the directory and emits a JSON listing of every `.pkg` / `.dmg` it finds. Add files to the folder → they auto-appear in the picker. Optional `metadata.json` sidecar adds friendly names, groups, descriptions, icons, and destructive flags.
-- **Static `catalog.json`** — generate locally with `tools/sync-catalog.sh` (rclone-based, works with any backend) and upload alongside the installers.
-
-### Enriching with .pkg / .app metadata
-
-Run `tools/extract-metadata.sh <pkgs-dir>` on the server (or locally) to pull `identifier`, `version`, and `title` out of every `.pkg`'s `PackageInfo` (`xar`) and every `.app`'s `Info.plist`. Merges into `metadata.json` without clobbering manual fields. Cron it for an always-fresh repo:
+**Enriching with .pkg / .app metadata** — run `tools/extract-metadata.sh <pkgs-dir>` on the server (or locally) to pull `identifier`, `version`, and `title` out of every `.pkg`'s `PackageInfo` (`xar`) and every `.app`'s `Info.plist`. Merges into `metadata.json` without clobbering manual fields. Cron it for an always-fresh repo:
 
 ```cron
 */15 * * * * cd ~/path/to/pkgs && bash extract-metadata.sh . >/dev/null 2>&1
 ```
 
-### Drop-to-install + drop-to-repo
+**Drop-to-install + drop-to-repo** — with a Package Repo configured, dropping a `.pkg` / `.dmg` / `.app` onto a host row both installs on the host **and** uploads the file to your repo so it shows up in the picker for next time. To upload without installing, use **Connect → Upload Package to Repo…** (⌘⇧U).
 
-With a Package Repo configured, dropping a `.pkg` / `.dmg` / `.app` onto a host row does both: installs on the host **and** uploads the file to your repo so it shows up in the picker for next time. To upload without installing, use **Connect → Upload Package to Repo…** (⌘⇧U).
+### 3. Munki Repo (optional)
 
-## MunkiReport integration (optional)
+If you already run a [Munki](https://www.munki.org) repo on an S3-compatible backend (Wasabi, AWS S3, Cloudflare R2, Backblaze B2, DigitalOcean Spaces) or behind a plain HTTPS / Basic-Auth-fronted server, the app browses and installs from it directly. **No server-side changes** — uses your existing bucket and credentials.
 
-If you run [MunkiReport-php](https://github.com/munkireport/munkireport-php), the app can pull inventory directly from it — last check-in, OS version, model, FileVault status, last Munki run, managed installs, battery health, disk SMART. Right-click any host → **Software Inventory → MunkiReport Stats…**.
+**Settings → Munki Repo:**
+
+| Field | What to enter |
+|---|---|
+| **Endpoint host** | The S3 endpoint hostname, no scheme. E.g. `s3.us-west-1.wasabisys.com`, `s3.amazonaws.com`, `<account>.r2.cloudflarestorage.com`, or your custom CNAME like `munki.example.com`. |
+| **Bucket** | The bucket name. Leave blank only when the endpoint *is* the bucket (custom CNAME pointing directly at the bucket). |
+| **Repo prefix** | Path inside the bucket where the Munki repo lives. Common values: `munki_repo`, `repo`, or empty if `catalogs/`, `pkgs/`, `pkgsinfo/` sit at bucket root. |
+| **Auth mode** | Pick one — see table below. |
+| **Region** | Wasabi / AWS region (`us-east-1`, `us-west-1`, etc.) or `auto` for Cloudflare R2. Wrong region = `SignatureDoesNotMatch`. |
+| **Access key + Secret key** | Your S3 credentials. Secret stored in macOS Keychain. |
+| **Basic Auth user + password** | Only filled in for **Basic** or **Both** auth modes. |
+
+**Auth modes** — match what's actually in front of your bucket:
+
+| Mode | When to use |
+|---|---|
+| **S3 SigV4** | Direct to any S3-compatible storage. Most common — Wasabi, AWS, R2, B2, Spaces. |
+| **None** | Plain HTTPS web server (Apache / nginx / Caddy / IIS) serving the Munki repo over HTTPS with no auth. |
+| **HTTP Basic Auth** | A Cloudflare Worker or nginx in front of your bucket adds Basic Auth. The proxy handles SigV4 to S3 itself, so you don't need Wasabi keys in this mode. |
+| **Both** | Passthrough proxy that requires Basic Auth from the client *and* forwards your SigV4 to S3 unchanged. |
+
+The **"Will fetch:"** preview in Settings shows the exact `catalogs/all` URL the app will build from your inputs — typos in endpoint / bucket / prefix are immediately visible. **Test Connection** verifies before you commit. Pasting the wrong bucket is the usual mistake; `aws s3 sync` syntax (`s3://<bucket>/<prefix>`) tells you what to enter in **Bucket** and **Repo prefix**.
+
+Once connected, the **Munki Repo** entry appears in the sidebar (collapsible) and a **Munki Repo** tab shows up in the Install Package picker. Right-click any package row to drill into older versions and install a specific build.
+
+### 4. MunkiReport API (optional)
+
+If you run [MunkiReport-php](https://github.com/munkireport/munkireport-php), the app can pull inventory directly from it — last check-in, OS version, model, FileVault status, last Munki run, managed installs, battery health, disk SMART. The data renders inline in the right pane under an **Inventory** tab when you select a host.
 
 MunkiReport-php has no external REST API, so the app talks to a tiny standalone PHP file (`server/munkireport-module/blueconnect_api.php`) you drop into MR's webroot. The file reads MR's database directly via the same `CONNECTION_*` env vars MR already has set, gates everything behind a Bearer token, and degrades gracefully when optional MR modules aren't installed.
-
-### Server-side setup
-
-The PHP file ships in this repo at `server/munkireport-module/blueconnect_api.php`. Drop it into the MR container's `public/` directory and tell the container what Bearer token to accept.
 
 **1. Copy the PHP file** to wherever your MR container has its `public/` (or a bind-mounted subdir of it):
 
 ```bash
-scp -P 2225 server/munkireport-module/blueconnect_api.php \
+scp server/munkireport-module/blueconnect_api.php \
     user@mr-host:/path/to/munkireport/public/blueconnect_api.php
 ```
 
@@ -114,8 +161,10 @@ A common bind-mount layout puts host-side `public/` at `/var/munkireport/public/
 TOKEN=$(openssl rand -hex 24)
 echo "BLUECONNECT_API_TOKEN=$TOKEN" >> /path/to/munkireport/munkireport.env
 docker compose up -d munkireport     # restart so the new env var is picked up
-echo "Token: $TOKEN"                 # copy this — you'll paste it into the app
+echo "Token: $TOKEN"                 # copy — you'll paste it into the app
 ```
+
+> ⚠️ `docker compose restart` is NOT enough — it doesn't reload env vars. Use `up -d` to actually recreate the container with the new env.
 
 **3. Verify from a shell** before pasting into the app:
 
@@ -128,9 +177,7 @@ curl -H "Authorization: Bearer $TOKEN" \
 # Expected: {"ok":true,"driver":"mysql"}   (or "sqlite")
 ```
 
-### App-side setup
-
-Open **Settings → MunkiReport** and fill in:
+**4. App-side** — Settings → MunkiReport:
 
 | Field | Value |
 |---|---|
@@ -138,11 +185,11 @@ Open **Settings → MunkiReport** and fill in:
 | **API token** | the value you generated above (stored in macOS Keychain) |
 | **API path** | `blueconnect_api.php` (default) or `custom/blueconnect_api.php` (when MR's bind mount surfaces the file under `/custom/`) |
 
-Then click **Test Connection**. A green checkmark means the URL, token, and DB connection are all good. From here, right-click any host that has a serial number → **Software Inventory → MunkiReport Stats…** to pull its inventory.
+Then click **Test Connection**. Green = URL, token, and DB connection all working. From here, click any host that has a serial number → **Inventory** tab on the right pane populates automatically. Tab choice persists across launches.
 
-### What you get
+#### What MunkiReport surfaces in the Inventory tab
 
-The inventory sheet renders only the sections your MR server actually has — missing modules are skipped silently:
+Only sections your MR server actually has — missing modules are skipped silently:
 
 - **Machine** — model, CPU, RAM, OS version, hostname
 - **Check-in** — last check-in time (with relative ago), console user, remote IP, uptime
@@ -152,7 +199,7 @@ The inventory sheet renders only the sections your MR server actually has — mi
 - **Battery** — condition, cycle count, max capacity %, charge %, AC state
 - **Managed Installs** — first 20 packages with checkmark for installed / dashed circle for pending, plus installed version
 
-### Troubleshooting
+#### MunkiReport troubleshooting
 
 | Symptom | Likely cause |
 |---|---|

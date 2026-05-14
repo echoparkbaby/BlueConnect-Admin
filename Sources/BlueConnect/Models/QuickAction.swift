@@ -19,15 +19,34 @@ struct QuickAction: Identifiable, Hashable {
     let buildCommand: (_ values: [String: String]) -> String
 
     /// Top-level grouping shown as a Section header in the right-click menu.
-    /// Order is deliberate — Secure Tokens first because that's the
-    /// highest-stakes action; Desktop tweaks last because they're cosmetic.
-    enum Category: String, CaseIterable {
-        case secureTokens   = "Secure Tokens"
-        case userAccounts   = "User Accounts"
-        case fileVault      = "FileVault"
-        case software       = "Software"
-        case system         = "System"
-        case fixAnnoyances  = "Fix Annoyances"
+    /// Order is deliberate for built-ins — Secure Tokens first because
+    /// that's the highest-stakes action; Fix Annoyances last because
+    /// those are cosmetic. Refactored from a simple enum to a struct so
+    /// custom (user-defined) actions can declare arbitrary category
+    /// names while keeping the type-safe `.secureTokens` accessors.
+    struct Category: Hashable {
+        let rawValue: String
+        init(rawValue: String) { self.rawValue = rawValue }
+
+        static let secureTokens  = Category(rawValue: "Secure Tokens")
+        static let userAccounts  = Category(rawValue: "User Accounts")
+        static let fileVault     = Category(rawValue: "FileVault")
+        static let software      = Category(rawValue: "Software")
+        static let system        = Category(rawValue: "System")
+        static let fixAnnoyances = Category(rawValue: "Fix Annoyances")
+
+        /// Free-form category for user-defined Quick Actions.
+        static func custom(name: String) -> Category {
+            Category(rawValue: name.isEmpty ? "Custom" : name)
+        }
+
+        /// Built-in categories, in display order. Used by the context-
+        /// menu grouped iterator. Custom categories thread through
+        /// QuickActionStore's separate grouping path.
+        static let allCases: [Category] = [
+            .secureTokens, .userAccounts, .fileVault,
+            .software, .system, .fixAnnoyances
+        ]
     }
 
     static func == (lhs: QuickAction, rhs: QuickAction) -> Bool { lhs.id == rhs.id }
