@@ -75,7 +75,16 @@ The fastest deploy is the included `deploy-server.sh`:
 # defaults: ssh-port=22, remote-path=~/docker/stacks/bluesky
 ```
 
-It scp's `server/*.php` and the `migrations/` directory to your BSC server. The categories migration runs idempotently on first request — no manual SQL needed.
+It scp's `server/*.php` and the `migrations/` directory to your BSC server. The `bs_categories` table migration runs idempotently on first request.
+
+**If you're on stock `sphen/bluesky`** (i.e. the `computers` table doesn't already have a `category` column from a prior BlueConnect deployment), run the columns migration manually one time before first sign-in:
+
+```sh
+docker compose exec -T db mysql -uroot -p"$MYSQL_ROOT_PASSWORD" bluesky \
+    < ~/docker/stacks/bluesky/migrations/2026-05-14-computers-blueconnect-columns.sql
+```
+
+This adds `category`, `favorite`, `notes`, `serialnum`, `notify`, `alert`, `email` to the `computers` table (idempotent — safe to re-run). Without it, login returns `HTTP 500 — Unknown column 'category' in 'field list'`.
 
 Verify:
 
@@ -307,6 +316,23 @@ curl -i -u admin:$WEBADMINPASS https://<host>/bs_hosts.json.php
 ```sh
 ./deploy-server.sh <user>@<host> 22 /usr/local/bin/BlueSkyConnect/Server/html
 ```
+
+### Sign-in returns `{"error":"query failed","detail":"Unknown column 'category' in 'field list'"}`
+
+You're on stock BlueSkyConnect (the `sphen/bluesky` image) and the `computers` table is missing the columns BlueConnect needs — `category`, `favorite`, `notes`, `serialnum`, `notify`, `alert`, `email`. The fix is one idempotent migration:
+
+```sh
+# From the project root, copy the migration up to your BSC host:
+scp -P <ssh-port> server/migrations/2026-05-14-computers-blueconnect-columns.sql \
+    <user>@<bsc-host>:/tmp/bc-cols.sql
+
+# On the BSC host, run it against the MySQL container:
+docker compose exec -T db mysql -uroot -p"$MYSQL_ROOT_PASSWORD" bluesky < /tmp/bc-cols.sql
+```
+
+`deploy-server.sh` already copies the entire `migrations/` directory up to the BSC host's stack dir, so the file is also at `~/docker/stacks/bluesky/migrations/2026-05-14-computers-blueconnect-columns.sql` after a deploy — you can `docker compose exec -T db mysql … < ~/docker/stacks/bluesky/migrations/2026-05-14-computers-blueconnect-columns.sql` instead of `scp`ing.
+
+The migration is idempotent — every column add goes through an `information_schema.COLUMNS` lookup first. Safe to re-run after upgrades.
 
 ### Sign-in returns `{"error":"MYSQLROOTPASS not set on server"}`
 
