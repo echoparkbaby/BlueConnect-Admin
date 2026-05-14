@@ -4,6 +4,28 @@ A native macOS admin client for [BlueSkyConnect](https://github.com/BlueSkyTools
 
 ![BlueConnect Admin screenshot](Resources/screenshot.png)
 
+## Highlights
+
+### Munki repo browser & installer · MunkiReport inventory in the side pane
+
+![Munki repo browser with the host Inventory tab on the right](Resources/screenshots/munki-repo-browser.png)
+
+Point the app at any S3-compatible Munki repo (Wasabi, AWS S3, Cloudflare R2, Backblaze B2, DigitalOcean Spaces) or a plain-HTTPS / HTTP-Basic-Auth-fronted server. Browse and search the catalog, right-click any package to drill into older versions, then deploy to one host or many via a multi-select picker.
+
+The right-side pane has an **Inventory** tab that pulls MunkiReport data inline — machine info, last check-in, Munki run status, FileVault, disk, battery, managed installs. Backed by a tiny standalone `blueconnect_api.php` file that drops into MR's `public/` directory; no upstream module changes.
+
+### Erase / Reinstall macOS, one structured sheet
+
+![Erase / Reinstall macOS sheet](Resources/screenshots/erase-reinstall.png)
+
+Drives [Graham Pugh's `erase-install.sh`](https://github.com/grahampugh/erase-install) from a single dialog. Every flag the wiki documents is reachable, with defaults that match a typical fleet (`--check-power`, `--power-wait-limit 180`, `--min-drive-space=50`, `--cleanup-after-use`). Recent runs are saved — star one to pin it past the 10-entry rolling cap. Hostname-confirm gate before `--erase` so you can't fat-finger a factory wipe.
+
+### Quick Admin Actions — recipes for the things you type over and over
+
+![Quick Admin Actions submenu cascade](Resources/screenshots/quick-admin-actions.png)
+
+Right-click a host → **Maintenance → Quick Admin Actions**. Categories cover Secure Tokens (grant / status), User Accounts (hide / unhide / logout / delete), FileVault (authenticated restart), Software (Homebrew install), System (set computer name across all three macOS hostname slots), and Fix Annoyances (click-wallpaper-to-show-desktop toggle, scrollbars always visible). Each action shows the exact shell command before you run it.
+
 ## Download
 
 Grab the latest signed and notarized `.dmg` from the [Releases page](../../releases). Open the disk image and drag **BlueConnect Admin** into `/Applications`.
