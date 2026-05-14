@@ -64,6 +64,20 @@ struct LoginView: View {
                 .keyboardShortcut(.defaultAction)
                 .disabled(checking || !canSubmit)
             }
+
+            // Escape hatch — lets users explore the app without a BSC
+            // backend. Munki Repo / Settings / Quick Actions / Tailscale
+            // / Local Network all still work. They can fill in BSC creds
+            // later via Settings → BlueConnect or just Sign Out to come
+            // back here.
+            Divider().padding(.vertical, 4)
+            Button {
+                auth.skipLogin()
+            } label: {
+                Text("Skip — explore without a BlueSky server")
+                    .font(.caption)
+            }
+            .buttonStyle(.link)
         }
         .padding(20)
         .fixedSize(horizontal: false, vertical: true)

@@ -109,7 +109,9 @@ struct BlueConnectAdminApp: App {
                     .keyboardShortcut("\\", modifiers: [.command])
             }
             ConnectCommands()
-            QuickActionsCommands()
+            // Pass the store explicitly — @EnvironmentObject in Commands
+            // doesn't propagate from the WindowGroup's content.
+            QuickActionsCommands(store: quickActionStore)
         }
         Settings {
             SettingsView()

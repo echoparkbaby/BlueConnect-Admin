@@ -12,7 +12,7 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
 
-    @State private var selection: Section = .account
+    @State private var selection: Section = .blueConnect
 
     // Local string mirrors of the Tailscale port settings (String binding —
     // IntegerFormatStyle's locale grouping silently corrupts port input).
@@ -34,7 +34,10 @@ struct SettingsView: View {
     }
 
     enum Section: String, CaseIterable, Identifiable {
-        case account, security, sshTunnel, defaults, discovery,
+        /// `blueConnect` merges what used to be Account + Defaults — one
+        /// page for the BSC server URL, login, admin SSH key, default
+        /// remote user, and Sign Out.
+        case blueConnect, security, discovery,
              tailscaleDefaults, packageRepo, eraseInstall,
              munkiRepo, munkiReport, quickActions,
              notifications, about
@@ -42,10 +45,8 @@ struct SettingsView: View {
         var id: String { rawValue }
         var label: String {
             switch self {
-            case .account:          return "Account"
+            case .blueConnect:      return "BlueConnect"
             case .security:         return "Security"
-            case .sshTunnel:        return "SSH Tunnel"
-            case .defaults:         return "Defaults"
             case .discovery:        return "Discovery"
             case .tailscaleDefaults:return "Tailscale Defaults"
             case .packageRepo:      return "Package Repo"
@@ -59,10 +60,8 @@ struct SettingsView: View {
         }
         var icon: String {
             switch self {
-            case .account:          return "person.crop.circle"
+            case .blueConnect:      return "person.crop.circle"
             case .security:         return "lock.shield"
-            case .sshTunnel:        return "network"
-            case .defaults:         return "gearshape"
             case .discovery:        return "dot.radiowaves.left.and.right"
             case .tailscaleDefaults:return "shield.lefthalf.filled"
             case .packageRepo:      return "shippingbox"
@@ -76,10 +75,17 @@ struct SettingsView: View {
         }
     }
 
-    /// Sidebar order is alphabetical by label — easier to scan when the
-    /// list keeps growing.
+    /// Sidebar order — alphabetical, but with "About" pinned to the
+    /// bottom so the credits page is reliably out of the way of
+    /// everyday-setting traffic.
     private var sortedSections: [Section] {
-        Section.allCases.sorted { $0.label.localizedCompare($1.label) == .orderedAscending }
+        let (about, rest) = Section.allCases.reduce(into: ([Section](), [Section]())) {
+            partial, sec in
+            if sec == .about { partial.0.append(sec) } else { partial.1.append(sec) }
+        }
+        return rest.sorted {
+            $0.label.localizedCompare($1.label) == .orderedAscending
+        } + about
     }
 
     var body: some View {
@@ -134,10 +140,8 @@ struct SettingsView: View {
     @ViewBuilder
     private var detailPane: some View {
         switch selection {
-        case .account:          accountPane
+        case .blueConnect:      blueConnectPane
         case .security:         securityPane
-        case .sshTunnel:        sshTunnelPane
-        case .defaults:         defaultsPane
         case .discovery:        discoveryPane
         case .tailscaleDefaults: tailscalePane
         case .packageRepo:      packageRepoPane
@@ -152,10 +156,42 @@ struct SettingsView: View {
 
     // MARK: - Section panes
 
-    private var accountPane: some View {
+    /// Merged Account + Defaults + SSH Tunnel page — was three sidebar
+    /// entries before. Logical groups separated by Text/bold headers:
+    ///   - Server     (read-only signed-in display)
+    ///   - SSH tunnel (per-BSC host + port for the ProxyCommand)
+    ///   - Connection defaults (admin key + remote user)
+    /// Sign Out lives at the bottom.
+    private var blueConnectPane: some View {
         Form {
-            LabeledContent("Server",   value: settings.apiURL.isEmpty ? "—" : settings.apiURL)
-            LabeledContent("Username", value: settings.apiUsername.isEmpty ? "—" : settings.apiUsername)
+            Text("Server")
+                .font(.subheadline).bold().foregroundStyle(.secondary)
+            LabeledContent("BlueConnect Server",
+                           value: settings.apiURL.isEmpty ? "—" : settings.apiURL)
+            LabeledContent("Username",
+                           value: settings.apiUsername.isEmpty ? "—" : settings.apiUsername)
+
+            Text("SSH tunnel")
+                .font(.subheadline).bold().foregroundStyle(.secondary)
+                .padding(.top, 6)
+            TextField("SSH host", text: $settings.serverFqdn,
+                      prompt: Text(verbatim: "bluesky.example.com"))
+                .help("Hostname the SSH ProxyCommand connects to. Often the same as the BlueConnect Server URL host. Override here if your BSC is fronted by a proxy that splits HTTP and SSH onto different hostnames.")
+            Stepper(value: $settings.sshTunnelPort, in: 22...65535) {
+                Text("SSH port: \(String(settings.sshTunnelPort))")
+            }
+            .help("Port the BSC sshd listens on. BlueSkyConnect's standard public port is 3122.")
+
+            Text("Connection defaults")
+                .font(.subheadline).bold().foregroundStyle(.secondary)
+                .padding(.top, 6)
+            TextField("Admin SSH key path", text: $settings.adminKeyPath,
+                      prompt: Text(verbatim: "~/.ssh/bluesky_admin"))
+                .help("Private key used for the SSH ProxyCommand into BSC's reverse tunnel.")
+            TextField("Default remote user", text: $settings.defaultRemoteUser,
+                      prompt: Text(verbatim: "admin"))
+                .help("Account opened by SSH/VNC/SCP on each remote Mac.")
+
             HStack {
                 Spacer()
                 Button("Sign Out…") {
@@ -194,24 +230,6 @@ struct SettingsView: View {
         .formStyle(.grouped)
     }
 
-    private var sshTunnelPane: some View {
-        Form {
-            TextField("SSH host", text: $settings.serverFqdn)
-            Stepper(value: $settings.sshTunnelPort, in: 22...65535) {
-                Text("SSH port: \(String(settings.sshTunnelPort))")
-            }
-        }
-        .formStyle(.grouped)
-    }
-
-    private var defaultsPane: some View {
-        Form {
-            TextField("Admin SSH key path", text: $settings.adminKeyPath)
-            TextField("Default remote user", text: $settings.defaultRemoteUser)
-        }
-        .formStyle(.grouped)
-    }
-
     private var discoveryPane: some View {
         Form {
             Toggle("Show Local Network peers in sidebar", isOn: $settings.localNetworkEnabled)
@@ -224,16 +242,30 @@ struct SettingsView: View {
 
     private var tailscalePane: some View {
         Form {
-            TextField("Default user",
-                      text: $settings.tailscaleDefaultUser,
-                      prompt: Text(verbatim: settings.defaultRemoteUser))
-                .help("Remote user used for SSH/VNC/SCP to a Tailscale peer. Leave blank to fall back to the global Default remote user. Per-peer overrides take precedence.")
-            TextField("SSH port", text: $tailscaleSSHPortText)
-                .onChange(of: tailscaleSSHPortText) { _, _ in commitSSHPort() }
-                .help("Used when connecting via SSH to a Tailscale peer. Per-peer overrides (right-click a peer → Custom Connection…) take precedence.")
-            TextField("VNC port", text: $tailscaleVNCPortText)
-                .onChange(of: tailscaleVNCPortText) { _, _ in commitVNCPort() }
-                .help("Used when connecting via Screen Sharing to a Tailscale peer. Per-peer overrides take precedence.")
+            // Shares state with the "Show Tailscale peers in sidebar"
+            // toggle in Settings → Discovery. Adding a second entry
+            // here so users who look under "Tailscale Defaults" find it
+            // without having to know it's in Discovery. Same backing
+            // @AppStorage("tailscaleEnabled") flag — flipping either
+            // toggle updates both.
+            Toggle("Show Tailscale group in sidebar", isOn: $settings.tailscaleEnabled)
+                .help("Disable to remove the Tailscale group from the left sidebar and stop polling the tailscale CLI. Per-peer overrides + the rest of these settings stay configured.")
+
+            if settings.tailscaleEnabled {
+                TextField("Default user",
+                          text: $settings.tailscaleDefaultUser,
+                          prompt: Text(verbatim: settings.defaultRemoteUser))
+                    .help("Remote user used for SSH/VNC/SCP to a Tailscale peer. Leave blank to fall back to the global Default remote user. Per-peer overrides take precedence.")
+                TextField("SSH port", text: $tailscaleSSHPortText)
+                    .onChange(of: tailscaleSSHPortText) { _, _ in commitSSHPort() }
+                    .help("Used when connecting via SSH to a Tailscale peer. Per-peer overrides (right-click a peer → Custom Connection…) take precedence.")
+                TextField("VNC port", text: $tailscaleVNCPortText)
+                    .onChange(of: tailscaleVNCPortText) { _, _ in commitVNCPort() }
+                    .help("Used when connecting via Screen Sharing to a Tailscale peer. Per-peer overrides take precedence.")
+            } else {
+                Text("Re-enable the toggle above to expose the per-peer connection defaults.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
     }
@@ -290,16 +322,36 @@ struct SettingsView: View {
 
     private var eraseInstallPane: some View {
         Form {
-            TextField("Path to erase-install.sh on host",
-                      text: $settings.eraseInstallPath,
-                      prompt: Text(verbatim: "/Library/Management/erase-install/erase-install.sh"))
-                .help("Where Graham Pugh's erase-install.sh lives on the remote Mac. The default matches the standard pkg install. If it's missing on a host, install it from your Package Repo.")
-            TextField("Default flags",
-                      text: $settings.eraseInstallDefaultFlags,
-                      prompt: Text(verbatim: "--min-drive-space=50 --cleanup-after-use --check-power --power-wait-limit 180"))
-                .help("Appended to every erase-install run on top of the mode (--reinstall / --erase) and any per-run overrides.")
-            Text("Trigger from any host's context menu → Erase / Reinstall macOS… (active hosts only).")
-                .font(.caption).foregroundStyle(.secondary)
+            // Labels are above their fields (instead of LabeledContent's
+            // side-by-side layout) and the fields use `.roundedBorder`
+            // so it's obvious where you can click and type.
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Path to erase-install.sh on the host")
+                    .font(.callout).bold()
+                TextField("", text: $settings.eraseInstallPath,
+                          prompt: Text(verbatim: "/Library/Management/erase-install/erase-install.sh"))
+                    .textFieldStyle(.roundedBorder)
+                    .font(.callout.monospaced())
+                Text("Where Graham Pugh's `erase-install.sh` lives on the remote Mac. The default matches the standard pkg install. If it's missing on a host, install it from your Package Repo.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Default flags")
+                    .font(.callout).bold()
+                TextField("", text: $settings.eraseInstallDefaultFlags,
+                          prompt: Text(verbatim: "--min-drive-space=50 --cleanup-after-use --check-power --power-wait-limit 180"))
+                    .textFieldStyle(.roundedBorder)
+                    .font(.callout.monospaced())
+                Text("Appended to every erase-install run on top of the mode (`--reinstall` / `--erase`) and any per-run overrides set in the sheet.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Text("Trigger from any host's right-click menu → Danger Zone → Erase / Reinstall macOS… (active hosts only).")
+                .font(.caption).foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .formStyle(.grouped)
     }
@@ -443,14 +495,22 @@ struct SettingsView: View {
     }
 
     private var munkiStatusLine: some View {
-        HStack(spacing: 6) {
-            Image(systemName: settings.isMunkiRepoConfigured
-                  ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                .foregroundStyle(settings.isMunkiRepoConfigured ? .green : .orange)
-            Text(settings.isMunkiRepoConfigured
-                 ? "Credentials present. Right-click a host → Browse Munki Repo… opens the picker."
-                 : "Fill in the fields for your selected auth mode to enable the Munki browser.")
-                .font(.caption).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: settings.isMunkiRepoConfigured
+                      ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                    .foregroundStyle(settings.isMunkiRepoConfigured ? .green : .orange)
+                Text(settings.isMunkiRepoConfigured
+                     ? "Credentials present. Right-click a host → Browse Munki Repo… opens the picker."
+                     : "Fill in the fields for your selected auth mode to enable the Munki browser.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Toggle("Show Munki Repo group in sidebar",
+                   isOn: Binding(
+                    get: { !settings.sidebarMunkiHidden },
+                    set: { settings.sidebarMunkiHidden = !$0 }
+                   ))
+                .help("Removes the Munki Repo entry from the left sidebar. The repo browser and the Munki tab in the Install Package picker still work — this is sidebar visibility only.")
         }
     }
 

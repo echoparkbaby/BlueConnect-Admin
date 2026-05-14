@@ -88,4 +88,15 @@ final class AuthGate: ObservableObject {
         requireTouchID = enableTouchID
         state = .unlocked
     }
+
+    /// User chose "explore without a server" on the login screen. We
+    /// don't persist this as "saved login" — they're explicitly in a
+    /// stateless trial mode. Next launch will land on the login screen
+    /// again (zero-friction return). Munki Repo, Settings, Quick
+    /// Actions, Tailscale / Local Network discovery, and the inventory
+    /// pane all still work; the BSC-backed host list is just empty.
+    func skipLogin() {
+        hasSavedLogin = false
+        state = .unlocked
+    }
 }

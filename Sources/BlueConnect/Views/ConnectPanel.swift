@@ -21,6 +21,7 @@ struct ConnectPanel: View {
     let hosts: [BlueSkyHost]
     let onSCPNeedsFile: (BlueSkyHost) -> Void
     let onVNCRequest: (BlueSkyHost, String) -> Void
+    let onInstallPackage: (BlueSkyHost) -> Void
     let onDeleteRequest: (BlueSkyHost, HostAction) -> Void
     let onBulkRequest: ([BlueSkyHost], HostAction) -> Void
     let onRenameRequest: (BlueSkyHost) -> Void
@@ -340,11 +341,18 @@ struct ConnectPanel: View {
         svc.onConnect = onConnect
         let user = remoteUser.isEmpty ? settings.defaultRemoteUser : remoteUser
 
-        return VStack(spacing: 8) {
+        // 2x2 grid — SSH / VNC on top row, SCP / Install on bottom. Each
+        // button stretches to fill its grid cell so the heights match.
+        let columns = [
+            GridItem(.flexible(), spacing: 8),
+            GridItem(.flexible(), spacing: 8),
+        ]
+        return LazyVGrid(columns: columns, spacing: 8) {
             Button {
                 svc.openSSH(host: host, remoteUser: user)
             } label: {
-                Label("Remote Shell (SSH)", systemImage: "terminal").frame(maxWidth: .infinity)
+                Label("SSH", systemImage: "terminal")
+                    .frame(maxWidth: .infinity)
             }
             .controlSize(.large)
             .disabled(!host.active)
@@ -353,7 +361,8 @@ struct ConnectPanel: View {
             Button {
                 onVNCRequest(host, user)
             } label: {
-                Label("Screen Share (VNC)", systemImage: "display").frame(maxWidth: .infinity)
+                Label("VNC", systemImage: "display")
+                    .frame(maxWidth: .infinity)
             }
             .controlSize(.large)
             .disabled(!host.active)
@@ -362,11 +371,22 @@ struct ConnectPanel: View {
             Button {
                 onSCPNeedsFile(host)
             } label: {
-                Label("File Upload (SCP)", systemImage: "doc.badge.arrow.up").frame(maxWidth: .infinity)
+                Label("Send File", systemImage: "doc.badge.arrow.up")
+                    .frame(maxWidth: .infinity)
             }
             .controlSize(.large)
             .disabled(!host.active)
             .keyboardShortcut("3")
+
+            Button {
+                onInstallPackage(host)
+            } label: {
+                Label("Install Package", systemImage: "shippingbox")
+                    .frame(maxWidth: .infinity)
+            }
+            .controlSize(.large)
+            .disabled(!host.active)
+            .keyboardShortcut("4")
         }
     }
 

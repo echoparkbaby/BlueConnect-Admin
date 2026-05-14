@@ -384,6 +384,12 @@ final class SettingsStore: ObservableObject {
     @AppStorage("sidebarLocalNetworkCollapsed")  var sidebarLocalNetworkCollapsed: Bool = false
     @AppStorage("sidebarTailscaleCollapsed")     var sidebarTailscaleCollapsed: Bool = false
     @AppStorage("sidebarMunkiCollapsed")         var sidebarMunkiCollapsed: Bool = false
+    /// When true, the Munki Repo group is removed from the sidebar
+    /// entirely (independent of the collapsed/expanded state). Useful
+    /// for admins who run the Munki picker but don't want the sidebar
+    /// real estate. The repo browser and Install Package's Munki tab
+    /// still work regardless — this is sidebar visibility only.
+    @AppStorage("sidebarMunkiHidden")            var sidebarMunkiHidden: Bool = false
 
     var expandedKeyPath: String {
         NSString(string: adminKeyPath).expandingTildeInPath

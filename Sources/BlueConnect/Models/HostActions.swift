@@ -38,23 +38,6 @@ struct HostActions {
     )
 }
 
-/// Tab-management bridge for the Connect menu's tail section. Lives here
-/// alongside HostActions because it's the same focused-value pattern.
-struct TerminalCommands {
-    let previousTab: () -> Void
-    let nextTab: () -> Void
-    let closeActiveTab: () -> Void
-    let closeAllTabs: () -> Void
-    let hasMultiple: Bool
-    let hasAny: Bool
-
-    static let none = TerminalCommands(
-        previousTab: {}, nextTab: {}, closeActiveTab: {}, closeAllTabs: {},
-        hasMultiple: false, hasAny: false
-    )
-}
-
 extension FocusedValues {
     @Entry var hostActions: HostActions? = nil
-    @Entry var terminalCommands: TerminalCommands? = nil
 }

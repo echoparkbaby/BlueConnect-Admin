@@ -155,7 +155,6 @@ struct ContentView: View {
             }
             .onChange(of: hostStore.lastError) { _, newValue in handleLastErrorChange(newValue) }
             .focusedSceneValue(\.hostActions, currentHostActions)
-            .focusedSceneValue(\.terminalCommands, currentTerminalCommands)
             .modifier(FilteredAndSortedCacheInvalidator(
                 recompute: { filteredAndSorted = computeFilteredAndSorted() },
                 hosts: hostStore.hosts,
@@ -199,21 +198,6 @@ struct ContentView: View {
             },
             hasPackages: !(packageCatalog.catalog?.packages.isEmpty ?? true),
             hasMunkiRepo: settings.isMunkiRepoConfigured
-        )
-    }
-
-    /// Bridge for the Connect menu's terminal-tab tail. Same focused-
-    /// value pattern as `currentHostActions`.
-    private var currentTerminalCommands: TerminalCommands {
-        TerminalCommands(
-            previousTab: { terminals.selectPrevious() },
-            nextTab: { terminals.selectNext() },
-            closeActiveTab: {
-                if let id = terminals.activeSessionID { terminals.close(id) }
-            },
-            closeAllTabs: { terminals.closeAll() },
-            hasMultiple: terminals.sessions.count >= 2,
-            hasAny: !terminals.sessions.isEmpty
         )
     }
 
@@ -477,6 +461,7 @@ struct ContentView: View {
                     )
                     vncController = svc.makeVNCController(host: h, remoteUser: user, recents: recents)
                 },
+                onInstallPackage: { h in openPackagePicker(for: [h]) },
                 onDeleteRequest: { h, action in alert = .singleAction(host: h, action: action) },
                 onBulkRequest: { hs, action in alert = .bulkAction(hosts: hs, action: action) },
                 onRenameRequest: { h in renameTarget = h },
@@ -762,29 +747,13 @@ struct ContentView: View {
                     }
                 }
                 .disabled(settings.munkiReportURL.isEmpty && !settings.isMunkiRepoConfigured)
-                Menu("Maintenance") {
-                    Menu("Quick Admin Actions") {
-                        // Reads from QuickActionStore so disabled actions
-                        // are hidden here too (and any user-defined
-                        // custom actions appear under their categories).
-                        ForEach(Array(quickActionStore.allEnabled.grouped.enumerated()),
-                                id: \.offset) { entry in
-                            Section(entry.element.0) {
-                                ForEach(entry.element.1) { action in
-                                    Button(action.label) {
-                                        quickActionTarget = QuickActionTarget(host: h, action: action)
-                                    }
-                                }
-                            }
-                        }
-                    }
+                Divider()
+                Menu("Danger Zone") {
                     Button("Erase / Reinstall macOS…", role: .destructive) {
                         eraseInstallTarget = h
                     }
-                }
-                .disabled(!h.active)
-                Divider()
-                Menu("Danger Zone") {
+                    .disabled(!h.active)
+                    Divider()
                     Button("Send Delete Command (selfdestruct)") {
                         alert = .singleAction(host: h, action: .selfdestruct)
                     }
@@ -792,6 +761,24 @@ struct ContentView: View {
                         alert = .singleAction(host: h, action: .delete)
                     }
                 }
+                Divider()
+                // Quick Actions sits at the very bottom of the menu so
+                // the common destructive operations don't bury it. Reads
+                // from QuickActionStore so disabled actions are hidden
+                // and custom user actions appear under their categories.
+                Menu("Quick Actions") {
+                    ForEach(Array(quickActionStore.allEnabled.grouped.enumerated()),
+                            id: \.offset) { entry in
+                        Section(entry.element.0) {
+                            ForEach(entry.element.1) { action in
+                                Button(action.label) {
+                                    quickActionTarget = QuickActionTarget(host: h, action: action)
+                                }
+                            }
+                        }
+                    }
+                }
+                .disabled(!h.active)
             } else if menuTargets.count > 1 {
                 Menu("Set Category for \(menuTargets.count) Hosts") {
                     if !categories.categories.isEmpty {

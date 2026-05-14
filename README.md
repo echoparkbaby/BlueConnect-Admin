@@ -16,15 +16,15 @@ The right-side pane has an **Inventory** tab that pulls MunkiReport data inline 
 
 ### Erase / Reinstall macOS, one structured sheet
 
-![Erase / Reinstall macOS sheet](Resources/screenshots/erase-reinstall.png)
+<img src="Resources/screenshots/erase-reinstall.png" alt="Erase / Reinstall macOS sheet" width="420" />
 
 Drives [Graham Pugh's `erase-install.sh`](https://github.com/grahampugh/erase-install) from a single dialog. Every flag the wiki documents is reachable, with defaults that match a typical fleet (`--check-power`, `--power-wait-limit 180`, `--min-drive-space=50`, `--cleanup-after-use`). Recent runs are saved — star one to pin it past the 10-entry rolling cap. Hostname-confirm gate before `--erase` so you can't fat-finger a factory wipe.
 
-### Quick Admin Actions — recipes for the things you type over and over
+### Quick Actions — recipes for the things you type over and over
 
-![Quick Admin Actions submenu cascade](Resources/screenshots/quick-admin-actions.png)
+<img src="Resources/screenshots/quick-admin-actions.png" alt="Quick Actions top-level menu" width="280" />
 
-Right-click a host → **Maintenance → Quick Admin Actions**. Categories cover Secure Tokens (grant / status), User Accounts (hide / unhide / logout / delete), FileVault (authenticated restart), Software (Homebrew install), System (set computer name across all three macOS hostname slots), and Fix Annoyances (click-wallpaper-to-show-desktop toggle, scrollbars always visible). Each action shows the exact shell command before you run it.
+Top-level **Quick Actions** menu — or right-click any host → **Quick Actions** for the same list in context. Categories cover Secure Tokens (grant / status), User Accounts (hide / unhide / logout / delete), FileVault (authenticated restart), Software (Homebrew install), System (set computer name across all three macOS hostname slots), and Fix Annoyances (click-wallpaper-to-show-desktop toggle, scrollbars always visible). Each action shows the exact shell command before you run it, and Settings → Quick Actions lets you hide built-ins or add your own custom shell-command actions.
 
 ## Download
 
@@ -250,16 +250,20 @@ That's it — the host list populates from the server.
 | ⌘1 | Open SSH session to selected host |
 | ⌘2 | Open VNC session to selected host |
 | ⌘3 | Send File via SCP to selected host |
-| ⌘4 | Install Package on selected host (opens the Package Repo picker) |
+| ⌘4 | Install Package on selected host (opens the Install Package window) |
 | ⌘⇧U | Upload Package to Repo… (no install) |
-| ⌘F | Focus the host search |
+| ⌘⇧E | Erase / Reinstall macOS… for selected host |
+| ⌘⇧M | Browse Munki Repo |
+| ⌘F | Focus the host search field |
 | ⌘R | Refresh host list |
+| ⌘E | Export host list as CSV |
+| ⌘A | Open Activity Log |
 | ⌘D | Toggle favorite on selected host |
+| ⌘S | Save host notes (when the right-pane notes field is dirty) |
 | ⌘W | Close active terminal tab (never closes the main window) |
-| ⌘⇧W | Close all terminal tabs |
-| ⌘⇧[ / ⌘⇧] | Previous / next terminal tab |
 | ⌘\\ | Show Log |
-| ⌘⇧L | Lock now (Touch ID re-required) |
+| ⌘⇧L | Lock now (Touch ID re-required if enabled) |
+| Esc | Close Settings window · clear the host search field |
 
 ## Building from source
 
