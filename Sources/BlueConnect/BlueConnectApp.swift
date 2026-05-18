@@ -81,7 +81,8 @@ struct BlueConnectAdminApp: App {
                         BlueSky version: \(bsVer)
                         PHP: \(phpVer)
 
-                        Based on BlueSkyConnect by sphen.
+                        BlueSky / BlueSkyConnect created by Brian Best.
+                        Maintained by sphen (Stephen Boyle).
                         """,
                         attributes: [.foregroundColor: NSColor.labelColor]
                     )
