@@ -1,6 +1,6 @@
 # BlueSkyConnect — Docker reference deployment
 
-Working `docker-compose.yml` for running [BlueSkyConnect](https://github.com/BlueSkyTools/BlueSkyConnect) + the BlueConnect Admin server endpoints. Reuses the upstream `sphen/bluesky` image and layers the BlueConnect PHP endpoints + (optional) custom fail2ban action via individual file mounts.
+Working `docker-compose.yml` for running [BlueSkyConnect](https://github.com/BlueSkyTools/BlueSkyConnect) + the BlueConnect Admin server endpoints. Pulls the official `ghcr.io/blueskytools/blueskyconnect:latest` image (BSC v2.5.1 and later — the legacy `sphen/bluesky` Docker Hub repo is no longer updated) and layers the BlueConnect PHP endpoints + (optional) custom fail2ban action via individual file mounts.
 
 ## Files in this directory
 

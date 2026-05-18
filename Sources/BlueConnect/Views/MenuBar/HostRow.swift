@@ -6,6 +6,8 @@ struct HostRow: View {
     @EnvironmentObject var settings: SettingsStore
     @Environment(RecentConnectStore.self) var recents
     @Environment(TerminalSessionsManager.self) var terminals
+    @Environment(SCPController.self) var scp
+    @Environment(\.openWindow) private var openWindow
     @State private var hovered = false
 
     var body: some View {
@@ -37,6 +39,10 @@ struct HostRow: View {
                     }
                     MiniIconButton(icon: "display", color: .blue, enabled: host.active, help: "VNC") {
                         connect(.vnc)
+                    }
+                    MiniIconButton(icon: "doc.badge.arrow.up", color: .orange,
+                                   enabled: host.active, help: "Send file (SCP)") {
+                        connect(.scp)
                     }
                 }
                 .opacity(host.active ? (hovered ? 1.0 : 0.6) : 0.3)
@@ -70,7 +76,7 @@ struct HostRow: View {
         return bits.isEmpty ? nil : bits.joined(separator: " · ")
     }
 
-    private enum Action { case ssh, vnc }
+    private enum Action { case ssh, vnc, scp }
 
     private func connect(_ action: Action) {
         guard host.active else { return }
@@ -85,6 +91,12 @@ struct HostRow: View {
         switch action {
         case .ssh: svc.openSSH(host: host, remoteUser: user)
         case .vnc: svc.openVNC(host: host, remoteUser: user)
+        case .scp:
+            scp.begin(with: host)
+            openWindow(id: "scp-transfer")
         }
+        // VNC + SCP open external windows but the dropdown stays open by
+        // default; explicitly dismiss so the user isn't double-handling it.
+        _ = user
     }
 }

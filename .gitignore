@@ -12,3 +12,5 @@ BlueConnect Admin.app/
 RELEASE_NOTES.md
 HANDOFF.md
 catalog.*.json
+.claude/
+CLAUDE.md

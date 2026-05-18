@@ -48,6 +48,27 @@ struct ConnectCommands: Commands {
             Button("Toggle Favorite") { actions?.toggleFavorite() }
                 .keyboardShortcut("d", modifiers: [.command])
                 .disabled(!(actions?.hasTarget ?? false))
+
+            Divider()
+
+            // Lifecycle — routed through HostActions so replay rebuilds
+            // against current Settings, not the stale launch args from
+            // the original open.
+            Button("Reopen Last Closed Session") { actions?.reopenLastClosed() }
+                .keyboardShortcut("t", modifiers: [.command, .shift])
+                .disabled(!(actions?.canReopenLastClosed ?? false))
+
+            Button("Reconnect") { actions?.reconnectActive() }
+                .keyboardShortcut("r", modifiers: [.control, .command])
+                .disabled(!(actions?.canReconnectActive ?? false))
+
+            Divider()
+
+            Button("Copy SSH Command") { actions?.copySSHCommand() }
+                .keyboardShortcut("c", modifiers: [.command, .shift])
+                .disabled(!(actions?.hasTarget ?? false))
+
+            Button("Copy BSC ProxyCommand") { actions?.copyProxyCommand() }
         }
     }
 }
