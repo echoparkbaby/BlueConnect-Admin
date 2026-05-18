@@ -64,6 +64,48 @@ if ($mysqli->connect_errno) {
 }
 $mysqli->set_charset('utf8mb4');
 
+// --- Idempotent schema migration ---
+// Stock sphen/bluesky / blueskytools images ship a `computers` table
+// with only the upstream columns. BlueConnect Admin needs a handful more
+// (category, favorite, notes, serialnum, notify, alert, email + an index
+// on category). This block adds anything missing on first hit so an
+// operator never has to remember to run the SQL file by hand.
+//
+// One information_schema query covers all columns; ALTERs only fire on
+// a missing column. After the first successful request against this
+// endpoint the steady-state cost is one fast lookup.
+$bsNeedCols = [
+    'category'  => 'VARCHAR(100) NULL DEFAULT NULL',
+    'favorite'  => 'TINYINT(1) NOT NULL DEFAULT 0',
+    'notes'     => 'TEXT NULL',
+    'serialnum' => 'VARCHAR(64) NULL DEFAULT NULL',
+    'notify'    => 'TINYINT(1) NOT NULL DEFAULT 0',
+    'alert'     => 'TINYINT(1) NOT NULL DEFAULT 0',
+    'email'     => 'VARCHAR(255) NULL DEFAULT NULL',
+];
+$bsExistingCols = [];
+if ($r = $mysqli->query("SELECT COLUMN_NAME FROM information_schema.COLUMNS
+                         WHERE TABLE_SCHEMA = DATABASE()
+                           AND TABLE_NAME   = 'computers'")) {
+    while ($row = $r->fetch_row()) $bsExistingCols[$row[0]] = true;
+}
+foreach ($bsNeedCols as $bsCol => $bsType) {
+    // Names hardcoded above — interpolation is safe.
+    if (!isset($bsExistingCols[$bsCol])) {
+        $mysqli->query("ALTER TABLE computers ADD COLUMN `$bsCol` $bsType");
+    }
+}
+// Index on category — speeds up the grouped-by-category host list query
+// on large fleets. Idempotent.
+$bsIdxR = $mysqli->query("SELECT 1 FROM information_schema.STATISTICS
+                          WHERE TABLE_SCHEMA = DATABASE()
+                            AND TABLE_NAME   = 'computers'
+                            AND INDEX_NAME   = 'idx_computers_category'
+                          LIMIT 1");
+if ($bsIdxR && $bsIdxR->num_rows === 0) {
+    $mysqli->query("CREATE INDEX idx_computers_category ON computers (category)");
+}
+
 /** Resolve the actual installed BlueSky version, in this order:
  *   1. /usr/local/bin/BlueSky/Server/version.json — authoritative; ships in
  *      the dev2xx image.

@@ -54,16 +54,17 @@ cd ../..
 cd examples/bluesky
 docker compose up -d
 
-# 6. Run the BlueConnect column migration ONE TIME (only matters on
-#    a stock sphen/bluesky DB — if you've been running an older
-#    BlueConnect Admin setup, these columns are already there):
-docker compose exec -T db mysql -uroot -p"$MYSQL_ROOT_PASSWORD" bluesky \
-    < migrations/2026-05-14-computers-blueconnect-columns.sql
-
-# 7. Smoke test
+# 6. Smoke test — also triggers the idempotent schema migration that
+#    bs_hosts.json.php auto-applies on first hit (adds category,
+#    favorite, notes, serialnum, notify, alert, email + index on
+#    a stock BSC `computers` table). Safe to re-run.
 curl -i http://localhost:8095/bs_health.json.php
 # expected: HTTP 200, JSON body with `bs_health_ok`
 ```
+
+The SQL files under `migrations/` ship for reference and for ops who
+want to apply them manually before first request (e.g. provisioning
+automation). The endpoints heal themselves regardless.
 
 ## Why so many file-level bind mounts?
 
