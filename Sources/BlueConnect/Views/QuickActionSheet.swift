@@ -80,13 +80,19 @@ struct QuickActionSheet: View {
         switch field.kind {
         case .text:
             LabeledContent(field.label) {
-                TextField(field.placeholder, text: binding)
+                // Empty title + explicit `prompt:` so the placeholder
+                // renders INSIDE the field, not as a trailing label
+                // outside the rounded box (which is what TextField's
+                // first-arg overload does in a macOS Form).
+                TextField("", text: binding,
+                          prompt: Text(verbatim: field.placeholder))
                     .textFieldStyle(.roundedBorder)
                     .frame(maxWidth: .infinity)
             }
         case .secure:
             LabeledContent(field.label) {
-                SecureField(field.placeholder, text: binding)
+                SecureField("", text: binding,
+                            prompt: Text(verbatim: field.placeholder))
                     .textFieldStyle(.roundedBorder)
                     .frame(maxWidth: .infinity)
             }

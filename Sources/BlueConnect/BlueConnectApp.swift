@@ -104,15 +104,20 @@ struct BlueConnectAdminApp: App {
             }
             // Single "View" menu — replaces both the system-injected one
             // and the previous custom one that contained only "Show Log".
-            CommandGroup(replacing: .toolbar) {
-                Button("Show Log") { terminals.activeSelection = .log }
-                    .keyboardShortcut("\\", modifiers: [.command])
-            }
+            ViewMenuCommands(terminals: terminals)
+            FileMenuExtrasCommands(terminals: terminals)
             ConnectCommands()
             // Pass the store explicitly — @EnvironmentObject in Commands
             // doesn't propagate from the WindowGroup's content.
             QuickActionsCommands(store: quickActionStore)
+            TerminalTabCommands(terminals: terminals)
+            FocusMenubarCommand()
         }
+        // Hide the giant unified-toolbar title text that macOS 14+ injects
+        // — it sat awkwardly across the sidebar splitter. Traffic lights
+        // and toolbar buttons remain, just no "BlueConnect Admin" text
+        // crammed in next to them.
+        .windowStyle(.hiddenTitleBar)
         Settings {
             SettingsView()
                 .environmentObject(settings)
@@ -180,6 +185,8 @@ struct BlueConnectAdminApp: App {
                 .environment(recents)
                 .environment(categories)
                 .environment(terminals)
+                .environment(scp)
+                .environment(activity)
         } label: {
             Image(systemName: hosts.lastError != nil ? "globe.badge.chevron.backward" : "globe")
                 .foregroundStyle(hosts.lastError != nil ? Color.red : Color.primary)

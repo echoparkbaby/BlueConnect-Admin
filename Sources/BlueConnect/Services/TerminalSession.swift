@@ -16,14 +16,16 @@ final class TerminalSession: Identifiable {
     /// detached, since the same NSView can't be in two hierarchies.
     var isDetached: Bool = false
 
-    enum Kind: String { case ssh, scp }
+    enum Kind: String { case ssh, scp, local }
 
     init(blueskyid: Int, title: String, kind: Kind, executable: String, args: [String]) {
         self.title = title
         self.kind = kind
         self.blueskyid = blueskyid
         self.view = LocalProcessTerminalView(frame: NSRect(x: 0, y: 0, width: 800, height: 320))
-        view.feed(text: "\u{1B}[2m$ \(executable) \(args.joined(separator: " "))\u{1B}[0m\r\n")
+        if kind != .local {
+            view.feed(text: "\u{1B}[2m$ \(executable) \(args.joined(separator: " "))\u{1B}[0m\r\n")
+        }
         view.startProcess(
             executable: executable,
             args: args,
