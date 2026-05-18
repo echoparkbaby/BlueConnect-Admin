@@ -40,25 +40,28 @@ services:
     networks: [bluesky_net]
 
   bluesky:
-    image: sphen/bluesky:dev2xx   # or :v2.3.2 for the stable upstream tag
+    # BSC v2.5.1+ ships on GHCR; sphen/bluesky on Docker Hub is no
+    # longer updated (security release moved publishing to Actions).
+    image: ghcr.io/blueskytools/blueskyconnect:latest
     container_name: bluesky
     restart: always
     cap_add: [NET_ADMIN]          # required for fail2ban
     depends_on: [db]
     environment:
       SERVERFQDN: ${SERVERFQDN}
-      MYSQLSERVER: db
       INSECURE_CIPHERS: "1"        # legacy Mac clients on older sshd builds
-      IN_DOCKER: "1"
-      FAIL2BAN: "1"
       USE_HTTP: "1"                # NPM / Caddy in front handles TLS
       EMAILALERT: ${EMAILALERT}
       SMTP_SERVER: ${SMTP_SERVER}
       SMTP_AUTH: ${SMTP_AUTH}
       SMTP_PASS: ${SMTP_PASS}
+      # WEBADMINPASS gates the BlueConnect Admin app's HTTP-Basic auth
+      # against bs_hosts.json.php (separate from the BSC web UI's own
+      # admin login, which lives in BlueSky.membership_users.passMD5).
       WEBADMINPASS: ${WEBADMINPASS}
-      BLUESKY_VERSION: ${BLUESKY_VERSION}
       MYSQLROOTPASS: ${MYSQL_ROOT_PASSWORD}
+      # MYSQLSERVER, IN_DOCKER, FAIL2BAN, BLUESKY_VERSION are baked into
+      # the image's Dockerfile ENV — no need to override them here.
     volumes:
       # Stateful directories
       - ./certs:/certs

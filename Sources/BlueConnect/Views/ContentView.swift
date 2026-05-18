@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -63,6 +64,10 @@ struct ContentView: View {
     }
     @FocusState private var searchFocused: Bool
     @AppStorage("sidebarFilter") private var sidebarFilterRaw: String = "all"
+    /// Pane visibility — toggled from the View menu (⌘B for sidebar).
+    /// Persisted across launches so the user's preferred layout sticks.
+    @AppStorage("sidebarVisible") private var sidebarVisible: Bool = true
+    @AppStorage("connectPanelVisible") private var connectPanelVisible: Bool = true
     @SceneStorage("hostsTableColumns") private var columnCustomization: TableColumnCustomization<BlueSkyHost>
 
     private var sidebarFilter: SidebarFilter {
@@ -149,6 +154,11 @@ struct ContentView: View {
                     Task { await munkiStore.refresh(settings: settings) }
                 }
             }
+            .onReceive(NotificationCenter.default.publisher(for: .bcDetachActiveTerminal)) { _ in
+                if let id = terminals.detachActive() {
+                    openWindow(id: "detached-terminal", value: id)
+                }
+            }
             .onChange(of: hostStore.lastResponse) { _, newValue in handleResponseChange(newValue) }
             .onChange(of: settings.notifyOnStateChange) { _, newValue in
                 if newValue { notifier.requestAuthorizationIfNeeded() }
@@ -190,15 +200,101 @@ struct ContentView: View {
                     Task { await setFavorite(!h.isFavorite, on: [h]) }
                 }
             },
-            showLog: { terminals.activeSelection = .log },
             runQuickAction: { action in
                 if let h = target {
                     quickActionTarget = QuickActionTarget(host: h, action: action)
                 }
             },
             hasPackages: !(packageCatalog.catalog?.packages.isEmpty ?? true),
-            hasMunkiRepo: settings.isMunkiRepoConfigured
+            hasMunkiRepo: settings.isMunkiRepoConfigured,
+            setSidebarFilter: { f in sidebarFilterRaw = encode(f) },
+            setSortField: { field in
+                switch field {
+                case "name":      sortOrder = [KeyPathComparator(\BlueSkyHost.displayName)]
+                case "id":        sortOrder = [KeyPathComparator(\BlueSkyHost.blueskyid)]
+                case "status":    sortOrder = [KeyPathComparator(\BlueSkyHost.statusSortKey)]
+                case "last_seen": sortOrder = [KeyPathComparator(\BlueSkyHost.timestamp, order: .reverse)]
+                default: break
+                }
+            },
+            toggleSidebar:      { sidebarVisible.toggle() },
+            toggleConnectPanel: { connectPanelVisible.toggle() },
+            isSidebarVisible: sidebarVisible,
+            isConnectPanelVisible: connectPanelVisible,
+            closeActiveTab:      { terminals.closeActive() },
+            canCloseActiveTab:    terminals.activeSessionID != nil,
+            reopenLastClosed:    { rebuildAndReopen() },
+            canReopenLastClosed:  terminals.lastClosed != nil,
+            reconnectActive:     { rebuildAndReconnect() },
+            canReconnectActive:   terminals.activeSession != nil,
+            copySSHCommand: {
+                if let h = target {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(sshCommandString(for: h), forType: .string)
+                }
+            },
+            copyProxyCommand: {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(proxyCommandString(), forType: .string)
+            }
         )
+    }
+
+    /// Rebuild the last-closed session against *current* Settings — so a
+    /// changed server FQDN / key path / tunnel port / remote user applies
+    /// on replay. Originally we re-spawned with the stored launch args,
+    /// which froze those values at original-launch time (codex review).
+    private func rebuildAndReopen() {
+        guard let stub = terminals.consumeLastClosed() else { return }
+        switch stub.kind {
+        case .local:
+            terminals.openLocalShell()
+        case .ssh:
+            guard let host = hostStore.hosts.first(where: { $0.blueskyid == stub.blueskyid }) else {
+                return
+            }
+            runQuickAction(host: host, kind: .ssh)
+        case .scp:
+            // SCP replay would need the original source file URL — not
+            // captured. User picks a new file via the normal SCP flow.
+            return
+        }
+    }
+
+    /// Re-run the active session's connection in a fresh tab, rebuilding
+    /// from current Settings (same rationale as `rebuildAndReopen`).
+    private func rebuildAndReconnect() {
+        guard let s = terminals.activeSession else { return }
+        switch s.kind {
+        case .local:
+            terminals.openLocalShell()
+        case .ssh:
+            guard let host = hostStore.hosts.first(where: { $0.blueskyid == s.blueskyid }) else {
+                return
+            }
+            runQuickAction(host: host, kind: .ssh)
+        case .scp:
+            return
+        }
+    }
+
+    private func sshCommandString(for host: BlueSkyHost) -> String {
+        let user = host.effectiveUser(default: settings.defaultRemoteUser)
+        let proxy = proxyCommandString()
+        return "ssh -t -o 'ProxyCommand=\(proxy)' -o StrictHostKeyChecking=no -o WarnWeakCrypto=no -p \(host.sshPort) \(user)@localhost"
+    }
+
+    private func proxyCommandString() -> String {
+        let port = settings.sshTunnelPort
+        let key = shellSingleQuote(settings.expandedKeyPath)
+        let server = settings.serverFqdn
+        return "ssh -o WarnWeakCrypto=no -p \(port) -i \(key) admin@\(server) /bin/nc %h %p"
+    }
+
+    /// POSIX single-quote escape — keys/paths with spaces survive the
+    /// copy-to-clipboard round trip. Mirrors ConnectionService.shq.
+    private func shellSingleQuote(_ s: String) -> String {
+        "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     /// First pass: layout + sheets/file pickers. Splitting body into two
@@ -413,30 +509,40 @@ struct ContentView: View {
     }
 
     private var mainSplitView: some View {
+        // IMPORTANT: HSplitView (NSSplitView-backed) crashes when its child
+        // count changes mid-render — "NSPerformVisuallyAtomicChange" fault.
+        // PaneCollapser keeps a stable view in each slot; only its inner
+        // contents swap between full pane and a thin chevron rail.
         HSplitView {
-            SidebarView(
-                selection: sidebarFilterBinding,
-                onAssign: { ids, categoryName in
-                    let toAssign = hostStore.hosts.filter { ids.contains($0.blueskyid) }
-                    Task {
-                        let r = await categories.assign(categoryName, to: toAssign, settings: settings)
-                        await hostStore.refresh(settings: settings)
-                        if !r.failed.isEmpty {
-                            alert = .result(
-                                title: "Assign Partial",
-                                message: "Succeeded: \(r.ok)\nFailed:\n\(r.failed.prefix(5).joined(separator: "\n"))"
-                            )
+            PaneCollapser(side: .leading, visible: $sidebarVisible) {
+                SidebarView(
+                    selection: sidebarFilterBinding,
+                    onAssign: { ids, categoryName in
+                        let toAssign = hostStore.hosts.filter { ids.contains($0.blueskyid) }
+                        Task {
+                            let r = await categories.assign(categoryName, to: toAssign, settings: settings)
+                            await hostStore.refresh(settings: settings)
+                            if !r.failed.isEmpty {
+                                alert = .result(
+                                    title: "Assign Partial",
+                                    message: "Succeeded: \(r.ok)\nFailed:\n\(r.failed.prefix(5).joined(separator: "\n"))"
+                                )
+                            }
                         }
-                    }
-                },
-                onFavorite: { ids in
-                    let hosts = hostStore.hosts.filter { ids.contains($0.blueskyid) }
-                    Task { await setFavorite(true, on: hosts) }
-                },
-                onOpenMunkiBrowser: { showingMunkiBrowser = true },
-                munkiStore: munkiStore
+                    },
+                    onFavorite: { ids in
+                        let hosts = hostStore.hosts.filter { ids.contains($0.blueskyid) }
+                        Task { await setFavorite(true, on: hosts) }
+                    },
+                    onOpenMunkiBrowser: { showingMunkiBrowser = true },
+                    munkiStore: munkiStore
+                )
+            }
+            .frame(
+                minWidth: sidebarVisible ? 180 : 22,
+                idealWidth: sidebarVisible ? 220 : 22,
+                maxWidth: sidebarVisible ? 280 : 22
             )
-            .frame(minWidth: 180, idealWidth: 220, maxWidth: 280)
 
             VStack(spacing: 0) {
                 topBar
@@ -446,40 +552,50 @@ struct ContentView: View {
             }
             .frame(minWidth: 540, maxWidth: .infinity, maxHeight: .infinity)
 
-            ConnectPanel(
-                hosts: selectedHosts,
-                onSCPNeedsFile: { h in
-                    scpController.begin(with: h)
-                    openWindow(id: "scp-transfer")
-                },
-                onVNCRequest: { h, user in
-                    let svc = ConnectionService(
-                        server: settings.serverFqdn,
-                        adminKeyPath: settings.expandedKeyPath,
-                        serverSshPort: settings.sshTunnelPort,
-                        terminals: terminals
-                    )
-                    vncController = svc.makeVNCController(host: h, remoteUser: user, recents: recents)
-                },
-                onInstallPackage: { h in openPackagePicker(for: [h]) },
-                onDeleteRequest: { h, action in alert = .singleAction(host: h, action: action) },
-                onBulkRequest: { hs, action in alert = .bulkAction(hosts: hs, action: action) },
-                onRenameRequest: { h in renameTarget = h },
-                onCategoryRequest: { hs in
-                    categoryTargets = hs
-                    showingCategorySheet = true
-                },
-                onConnect: { h in recents.recordConnect(blueskyid: h.blueskyid) },
-                onSaveNotes: { h, newNotes in saveNotes(host: h, notes: newNotes) },
-                onUpdateField: { h, field, value in updateField(host: h, field: field, value: value) }
+            PaneCollapser(side: .trailing, visible: $connectPanelVisible) {
+                ConnectPanel(
+                    hosts: selectedHosts,
+                    onSCPNeedsFile: { h in
+                        scpController.begin(with: h)
+                        openWindow(id: "scp-transfer")
+                    },
+                    onVNCRequest: { h, user in
+                        let svc = ConnectionService(
+                            server: settings.serverFqdn,
+                            adminKeyPath: settings.expandedKeyPath,
+                            serverSshPort: settings.sshTunnelPort,
+                            terminals: terminals
+                        )
+                        vncController = svc.makeVNCController(host: h, remoteUser: user, recents: recents)
+                    },
+                    onInstallPackage: { h in openPackagePicker(for: [h]) },
+                    onDeleteRequest: { h, action in alert = .singleAction(host: h, action: action) },
+                    onBulkRequest: { hs, action in alert = .bulkAction(hosts: hs, action: action) },
+                    onRenameRequest: { h in renameTarget = h },
+                    onCategoryRequest: { hs in
+                        categoryTargets = hs
+                        showingCategorySheet = true
+                    },
+                    onConnect: { h in recents.recordConnect(blueskyid: h.blueskyid) },
+                    onSaveNotes: { h, newNotes in saveNotes(host: h, notes: newNotes) },
+                    onUpdateField: { h, field, value in updateField(host: h, field: field, value: value) }
+                )
+            }
+            .frame(
+                minWidth: connectPanelVisible ? 280 : 22,
+                idealWidth: connectPanelVisible ? 320 : 22,
+                maxWidth: connectPanelVisible ? 360 : 22,
+                maxHeight: .infinity
             )
-            .frame(minWidth: 280, idealWidth: 320, maxWidth: 360, maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
+        // Pane collapse lives at each pane's outer edge as a chevron
+        // (see PaneCollapser) and in the View menu (⌃⌘S / ⌃⌘P). The
+        // toolbar stays minimal — just the ⋯ Actions menu.
         ToolbarItem(placement: .primaryAction) {
             Menu {
                 Button("Refresh") { Task { await hostStore.refresh(settings: settings) } }
@@ -1265,11 +1381,20 @@ struct ContentView: View {
 
     private var topBar: some View {
         HStack(spacing: 10) {
-            HStack {
+            HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                TextField("Search hostname, ID, user, category, notes…", text: $searchText)
-                    .textFieldStyle(.plain)
-                    .focused($searchFocused)
+                // ZStack lets us render a dimmer placeholder than TextField's
+                // default — and gives us a visible click target the whole
+                // width of the field, not just where the (faint) caret is.
+                ZStack(alignment: .leading) {
+                    if searchText.isEmpty {
+                        Text("Search")
+                            .foregroundStyle(.tertiary)
+                    }
+                    TextField("", text: $searchText)
+                        .textFieldStyle(.plain)
+                        .focused($searchFocused)
+                }
                 if !searchText.isEmpty {
                     Button("Clear search", systemImage: "xmark.circle.fill") {
                         searchText = ""
@@ -1280,8 +1405,18 @@ struct ContentView: View {
                     .keyboardShortcut(.escape, modifiers: [])
                 }
             }
-            .padding(.horizontal, 8).padding(.vertical, 6)
-            .background(Color(NSColor.textBackgroundColor)).clipShape(.rect(cornerRadius: 6))
+            .padding(.horizontal, 10).padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 7)
+                    .fill(Color(NSColor.textBackgroundColor))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 7)
+                    .stroke(searchFocused ? Color.accentColor.opacity(0.6) : Color.secondary.opacity(0.25),
+                            lineWidth: 1)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 7))
+            .onTapGesture { searchFocused = true }
 
             FqdnPill(text: settings.serverFqdn, healthy: serverHealthOK)
 
