@@ -25,4 +25,11 @@ struct LocalService: Identifiable, Hashable, Sendable {
 
     var hasSSH: Bool { sshPort != nil }
     var hasVNC: Bool { vncPort != nil }
+
+    /// Hostname shown in the sidebar — strips the trailing `.` that
+    /// Bonjour leaves on `.local.` names. The dot is fine for SSH/VNC
+    /// (both forms resolve), but it looks like a typo in the UI.
+    var displayHostname: String {
+        hostname.hasSuffix(".") ? String(hostname.dropLast()) : hostname
+    }
 }

@@ -18,12 +18,12 @@ struct FileMenuExtrasCommands: Commands {
         CommandGroup(after: .newItem) {
             Button("New Terminal") { terminals.openLocalShell() }
                 .keyboardShortcut("t", modifiers: [.command])
-
-            Divider()
-
-            Button("Close Tab") { actions?.closeActiveTab() }
-                .keyboardShortcut("w", modifiers: [.command])
-                .disabled(!(actions?.canCloseActiveTab ?? false))
         }
+        // ⌘W is intentionally NOT bound at app scope. macOS auto-injects
+        // File→Close Window with ⌘W, which calls `performClose` on the
+        // front window. BCMainWindow intercepts that path on the main
+        // window to close the active terminal tab instead. Every other
+        // window (Settings, SCP Transfer, Package Picker, Detached
+        // Terminal) closes naturally — which is what the user expects.
     }
 }

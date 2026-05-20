@@ -93,6 +93,7 @@ struct BlueConnectAdminApp: App {
                         .credits: credits,
                     ])
                 }
+                .keyboardShortcut("i", modifiers: [.command])
             }
             // "Lock Now" now lives in the Edit menu (was a standalone
             // "Security" menu). Tucked under .textEditing so it sits at
@@ -163,7 +164,11 @@ struct BlueConnectAdminApp: App {
                 .environmentObject(settings)
                 .environment(installer)
         }
-        .windowResizability(.contentSize)
+        // .contentMinSize honors the view's min-frame but lets the user
+        // drag the window edges to enlarge — needed so the disclosed log
+        // pane can be sized for readability. .contentSize would have
+        // pinned the window strictly to the view's ideal size.
+        .windowResizability(.contentMinSize)
         .defaultPosition(.center)
         .commandsRemoved()
 

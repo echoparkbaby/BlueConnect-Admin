@@ -205,7 +205,8 @@ struct ContentView: View {
                     quickActionTarget = QuickActionTarget(host: h, action: action)
                 }
             },
-            hasPackages: !(packageCatalog.catalog?.packages.isEmpty ?? true),
+            hasPackages: !(packageCatalog.catalog?.packages.isEmpty ?? true)
+                || settings.isMunkiRepoConfigured,
             hasMunkiRepo: settings.isMunkiRepoConfigured,
             setSidebarFilter: { f in sidebarFilterRaw = encode(f) },
             setSortField: { field in
@@ -543,6 +544,12 @@ struct ContentView: View {
                 idealWidth: sidebarVisible ? 220 : 22,
                 maxWidth: sidebarVisible ? 280 : 22
             )
+            // Make munkiStore reachable to LocalNetworkRow (and any other
+            // sidebar descendants) via @Environment — needed for the
+            // direct-install Munki path. The store is already passed as
+            // an init param to SidebarView for the MunkiBrowserView call;
+            // this is the same instance, just exposed in the env chain.
+            .environment(munkiStore)
 
             VStack(spacing: 0) {
                 topBar
@@ -721,7 +728,7 @@ struct ContentView: View {
                         runQuickAction(host: h, kind: .scp)
                     }
                     QuickActionButton(icon: "shippingbox.fill", color: .purple,
-                                      enabled: h.active && hasPackageCatalog,
+                                      enabled: h.active && (hasPackageCatalog || settings.isMunkiRepoConfigured),
                                       help: "Install Package") {
                         openPackagePicker(for: [h])
                     }
@@ -800,14 +807,21 @@ struct ContentView: View {
                 }
                 Divider()
                 Menu("Install") {
+                    // Defer state mutations one runloop tick — context-menu
+                    // actions race with the menu's own dismissal animation,
+                    // and `openWindow` / sheet presentations get swallowed
+                    // without this hop. Same trick that fixed the Munki
+                    // browser's right-click "Install latest…" item.
                     Button("Local .pkg / .dmg…") {
-                        installFileHost = h
-                        showingInstallFilePicker = true
+                        Task { @MainActor in
+                            installFileHost = h
+                            showingInstallFilePicker = true
+                        }
                     }
                     .disabled(!h.active)
                     if let cat = packageCatalog.catalog, !cat.packages.isEmpty {
                         Button("From Repo Picker…") {
-                            openPackagePicker(for: [h])
+                            Task { @MainActor in openPackagePicker(for: [h]) }
                         }
                         .disabled(!h.active)
                         Menu("Quick Install (Direct)") {
@@ -815,7 +829,7 @@ struct ContentView: View {
                                 if section.group.isEmpty {
                                     ForEach(section.items) { pkg in
                                         Button {
-                                            installPackage(pkg, on: h)
+                                            Task { @MainActor in installPackage(pkg, on: h) }
                                         } label: {
                                             Label(pkg.name, systemImage: pkg.resolvedIcon)
                                         }
@@ -824,7 +838,7 @@ struct ContentView: View {
                                     Section(section.group) {
                                         ForEach(section.items) { pkg in
                                             Button {
-                                                installPackage(pkg, on: h)
+                                                Task { @MainActor in installPackage(pkg, on: h) }
                                             } label: {
                                                 Label(pkg.name, systemImage: pkg.resolvedIcon)
                                             }
@@ -838,7 +852,7 @@ struct ContentView: View {
                         // No Direct catalog, but Munki is. Surface a shortcut
                         // straight to the Munki tab of the picker.
                         Button("From Munki Repo…") {
-                            openPackagePicker(for: [h])
+                            Task { @MainActor in openPackagePicker(for: [h]) }
                         }
                         .disabled(!h.active)
                     }
@@ -1169,10 +1183,12 @@ struct ContentView: View {
         openWindow(id: "install-progress")
     }
 
-    /// Fetch a Munki .pkg/.dmg from the configured S3 repo via SigV4 —
-    /// streamed straight to a tempfile by curl in a detached task so the
-    /// main actor stays responsive — then funnel it into the existing
-    /// local-file install path (drop / picker).
+    /// Open the install window IMMEDIATELY for a Munki package, in the
+    /// usual `.idle` state (sudo password prompt + Install button). The
+    /// S3 download closure is stashed on the controller and only runs
+    /// after the user clicks Install — same gather-creds-first flow as
+    /// the local-file install path. The download then shows up as the
+    /// leading `.download` step in the progress checklist.
     private func installMunkiPackage(_ pkg: MunkiPkg, on host: BlueSkyHost) {
         guard let loc = pkg.installerItemLocation, !loc.isEmpty else {
             alert = .result(title: "Munki Install",
@@ -1181,17 +1197,18 @@ struct ContentView: View {
         }
         let ext = (loc as NSString).pathExtension.isEmpty
             ? "pkg" : (loc as NSString).pathExtension
+        let fileName = (loc as NSString).lastPathComponent
         let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("bcadmin-munki-\(UUID().uuidString).\(ext)")
-        Task {
-            do {
-                try await munkiStore.fetch(key: "pkgs/\(loc)", to: tmp, settings: settings)
-                installLocalPackage(url: tmp, on: host)
-            } catch {
-                alert = .result(title: "Munki Fetch Failed",
-                                message: error.localizedDescription)
-            }
+        let store = munkiStore
+        let settingsRef = settings
+
+        recents.recordConnect(blueskyid: host.blueskyid)
+        installer.prepareMunkiPending(host: host, expectedFileName: fileName) {
+            try await store.fetch(key: "pkgs/\(loc)", to: tmp, settings: settingsRef)
+            return tmp
         }
+        openWindow(id: "install-progress")
     }
 
     /// Present the floating Install Package window for these hosts.

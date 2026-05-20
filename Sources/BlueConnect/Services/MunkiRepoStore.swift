@@ -245,7 +245,13 @@ final class MunkiRepoStore {
             ? "" : "/\(bucket.trimmingCharacters(in: trim))"
         let prefixPart = prefix.trimmingCharacters(in: .whitespaces).isEmpty
             ? "" : "/\(prefix.trimmingCharacters(in: trim))"
-        return "https://\(host)\(bucketPart)\(prefixPart)/\(key)"
+        // Percent-encode the key path. Munki pkginfo `installer_item_location`
+        // values commonly contain spaces ("A Better Finder Rename/…") which
+        // curl rejects as malformed unless encoded. `.urlPathAllowed` keeps
+        // `/` segment separators intact while encoding spaces and other
+        // path-unsafe characters.
+        let encodedKey = key.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? key
+        return "https://\(host)\(bucketPart)\(prefixPart)/\(encodedKey)"
     }
 
     /// Parse `catalogs/all` (binary or XML plist of dicts) into `MunkiPkg`s.

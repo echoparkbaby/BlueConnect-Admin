@@ -255,9 +255,10 @@ That's it — the host list populates from the server.
 
 ### Keyboard shortcuts
 
+**Connection**
+
 | Shortcut | Action |
 |---|---|
-| ⌘, | Open Settings |
 | ⌘1 | Open SSH session to selected host |
 | ⌘2 | Open VNC session to selected host |
 | ⌘3 | Send File via SCP to selected host |
@@ -265,16 +266,61 @@ That's it — the host list populates from the server.
 | ⌘⇧U | Upload Package to Repo… (no install) |
 | ⌘⇧E | Erase / Reinstall macOS… for selected host |
 | ⌘⇧M | Browse Munki Repo |
+| ⌘⇧T | Reopen last closed terminal session |
+| ⌃⌘R | Reconnect — re-run the active tab's connection in a fresh tab |
+| ⌘⇧C | Copy `ssh user@…` command for the selected host |
+
+**Tabs**
+
+| Shortcut | Action |
+|---|---|
+| ⌘T | New local terminal (zsh) |
+| ⌘⇧[ / ⌘⇧] | Previous / next bottom-pane tab |
+| ⌃⌘1 | Jump to Log tab |
+| ⌃⌘2 … ⌃⌘9 | Jump to terminal tab N |
+| ⌘⇧D | Detach active tab to its own window |
+| ⌘⇧K | Kill all active SSH tunnels |
+| ⌘W | Close active terminal tab (main window) · close detached terminal window |
+| ⌘⇧W | (In a detached terminal window) reattach to the main window's tab bar |
+
+**View**
+
+| Shortcut | Action |
+|---|---|
+| ⌃⌘S | Toggle sidebar |
+| ⌃⌘P | Toggle Connect Panel (right pane) |
+| ⌘⇧1 | Sidebar filter: All hosts |
+| ⌘⇧2 | Sidebar filter: Favorites |
+| ⌘⇧3 | Sidebar filter: Recently Connected |
+| ⌘⇧4 | Sidebar filter: Active |
+| ⌘⇧5 | Sidebar filter: Inactive |
+| ⌘⇧6 | Sidebar filter: Uncategorized |
+| ⌘\\ | Show Log pane |
 | ⌘F | Focus the host search field |
+| ⌘⇧F | Focus the menubar quick-search dropdown |
+
+**App**
+
+| Shortcut | Action |
+|---|---|
+| ⌘, | Open Settings |
+| ⌘I | About BlueConnect Admin |
 | ⌘R | Refresh host list |
 | ⌘E | Export host list as CSV |
 | ⌘A | Open Activity Log |
 | ⌘D | Toggle favorite on selected host |
 | ⌘S | Save host notes (when the right-pane notes field is dirty) |
-| ⌘W | Close active terminal tab (never closes the main window) |
-| ⌘\\ | Show Log |
 | ⌘⇧L | Lock now (Touch ID re-required if enabled) |
 | Esc | Close Settings window · clear the host search field |
+
+**Menubar dropdown** — when a host row is keyboard-focused:
+
+| Key | Action |
+|---|---|
+| ↩︎ Return | SSH to focused host |
+| V | VNC to focused host |
+| S | Send File via SCP to focused host |
+| ↑ / ↓ | Move keyboard selection |
 
 ## Building from source
 

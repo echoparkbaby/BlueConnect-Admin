@@ -53,7 +53,10 @@ struct DetachedTerminalView: View {
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
-            .help("Move this terminal back into the main window's tab bar")
+            // ⌘⇧W — pairs with ⌘W (close window) so the user has both
+            // reattach and dispose at their fingertips without the mouse.
+            .keyboardShortcut("w", modifiers: [.command, .shift])
+            .help("Move this terminal back into the main window's tab bar (⌘⇧W)")
         }
         .padding(.horizontal, 10).padding(.vertical, 6)
         .background(Color(NSColor.controlBackgroundColor))
