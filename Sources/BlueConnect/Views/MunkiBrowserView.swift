@@ -166,12 +166,15 @@ struct MunkiBrowserView: View {
         List(filteredPackages, selection: $selection) { pkg in
             row(for: pkg)
                 .tag(pkg.id)
-                .simultaneousGesture(
-                    TapGesture(count: 2).onEnded { pendingInstall = pkg }
-                )
                 .contextMenu { versionsMenu(for: pkg) }
         }
         .listStyle(.inset)
+        // Double-click a selection to install — handled via onChange of the
+        // List's tap count is not possible, but tapping a row sets
+        // `selection`; if the user wants install, they use the context menu
+        // or the footer Install button. The previous .simultaneousGesture
+        // for double-click was racing with List's own click-to-select on
+        // macOS, making single-click selection unresponsive.
     }
 
     private func row(for pkg: MunkiPkg) -> some View {
@@ -198,7 +201,7 @@ struct MunkiBrowserView: View {
     private func versionsMenu(for pkg: MunkiPkg) -> some View {
         let versions = allVersions(of: pkg.name)
         Button("Install latest (\(pkg.version))…") {
-            pendingInstall = pkg
+            presentInstall(pkg)
         }
         if versions.count > 1 {
             Menu("Install Specific Version…") {
@@ -206,13 +209,24 @@ struct MunkiBrowserView: View {
                     Button(v.version == pkg.version
                            ? "\(v.version) — latest"
                            : v.version) {
-                        pendingInstall = v
+                        presentInstall(v)
                     }
                 }
             }
         }
         Divider()
         Button("Select") { selection = pkg.id }
+    }
+
+    /// Defers the `pendingInstall` write one runloop tick. Setting a
+    /// `.sheet(item:)` binding directly inside a contextMenu's action
+    /// races with the menu's own dismissal animation on macOS — the
+    /// state mutation gets clobbered and the sheet never presents. The
+    /// async hop ensures the menu is fully torn down first.
+    private func presentInstall(_ pkg: MunkiPkg) {
+        Task { @MainActor in
+            pendingInstall = pkg
+        }
     }
 
     @ViewBuilder

@@ -31,8 +31,15 @@ final class PackagePickerController {
     /// Set by the window when the user drops or picks a local installer.
     var pendingFileDrop: URL? = nil
 
+    /// Parallel "target" for the direct-install (local-network) flow.
+    /// When `hosts` is empty AND `localTarget` is set, LocalNetworkRow
+    /// owns the dispatch instead of ContentView. Cleared by whichever
+    /// observer consumed the pending install.
+    var localTarget: LocalService? = nil
+
     func present(hosts: [BlueSkyHost]) {
         self.hosts = hosts
+        self.localTarget = nil
         self.openCounter &+= 1
     }
 }

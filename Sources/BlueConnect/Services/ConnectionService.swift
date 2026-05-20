@@ -368,6 +368,53 @@ struct ConnectionService {
         }
     }
 
+    /// SSH into a Bonjour/Tailscale-discovered host using the system
+    /// Terminal.app instead of the embedded terminal pane — useful when
+    /// the user wants a standalone window they can split, tab, etc.
+    func openDirectSSHInTerminal(hostname: String, port: Int, remoteUser: String) {
+        let cmd = "ssh -t -o StrictHostKeyChecking=no -o WarnWeakCrypto=no -p \(port) \(shellQuote(remoteUser))@\(shellQuote(hostname))"
+        runInTerminal(command: cmd)
+    }
+
+    /// SCP a single file to a local-network host (no BSC proxy). Drops
+    /// the file in `~/Desktop/` on the remote, same as the BSC-tunneled
+    /// SCP path does.
+    func openDirectSCP(hostname: String, port: Int, remoteUser: String, sourceURL: URL) {
+        let args = [
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "WarnWeakCrypto=no",
+            "-P", "\(port)", sourceURL.path,
+            "\(remoteUser)@\(hostname):~/Desktop/",
+        ]
+        Task { @MainActor in
+            _ = terminals.openSCP(
+                blueskyid: 0, displayName: hostname,
+                executable: "/usr/bin/scp", args: args
+            )
+        }
+    }
+
+    /// Run an arbitrary command on a direct-reachable host. Used by the
+    /// local-network context menu's "Run command…" option. Streams output
+    /// into an embedded terminal tab so the user can read results.
+    func openDirectRemoteCommand(hostname: String, port: Int, remoteUser: String,
+                                 command: String, label: String) {
+        let args = [
+            "-t",
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "WarnWeakCrypto=no",
+            "-p", "\(port)", "\(remoteUser)@\(hostname)",
+            command,
+        ]
+        Task { @MainActor in
+            _ = terminals.openSSH(
+                blueskyid: 0,
+                displayName: "\(label) → \(hostname)",
+                executable: "/usr/bin/ssh", args: args
+            )
+        }
+    }
+
     /// SCP a single file to the remote ~/Desktop/ via embedded terminal tab.
     func openSCP(host: BlueSkyHost, remoteUser: String, sourceURL: URL) {
         onConnect?(host)
