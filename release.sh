@@ -27,6 +27,10 @@ DMG="$PROJECT_ROOT/$DMG_NAME"
 # exported so build-app.sh + make-dmg.sh pick them up.
 export VERSION="${TAG#v}"
 export BUILD_NUMBER="$(($(git tag --list | wc -l | tr -d ' ') + 1))"
+# Signal to build-app.sh that this BUILD_NUMBER is a release-managed
+# counter, not the stale value sourced from .env-sign — so it isn't
+# rewritten to a timestamp.
+export BUILD_NUMBER_EXPLICIT=1
 echo "▶ release VERSION=$VERSION  BUILD_NUMBER=$BUILD_NUMBER (tag=$TAG)"
 
 bash "$PROJECT_ROOT/make-dmg.sh"

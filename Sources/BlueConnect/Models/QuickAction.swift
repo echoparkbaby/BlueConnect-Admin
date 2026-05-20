@@ -245,7 +245,7 @@ struct QuickAction: Identifiable, Hashable {
             icon: "tag.square",
             fields: [
                 .init(id: "name", label: "New name",
-                      placeholder: "Brandon's MacBook Pro", kind: .text),
+                      placeholder: "e.g. Lab 2 Mini", kind: .text),
                 .init(id: "scope", label: "Apply to",
                       placeholder: "", kind: .picker([
                         .init(label: "All three names (recommended)", value: "all"),

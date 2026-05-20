@@ -17,6 +17,7 @@ final class InstallController {
 
     enum Phase: Equatable {
         case idle
+        case downloading   // Munki: fetching from S3/HTTP to local /tmp before upload
         case compressing
         case uploading
         case mounting
@@ -31,6 +32,7 @@ final class InstallController {
         var label: String {
             switch self {
             case .idle:        return "Ready"
+            case .downloading: return "Downloading from Munki Repo…"
             case .compressing: return "Compressing .app into a disk image…"
             case .uploading:   return "Uploading to remote /tmp/…"
             case .mounting:    return "Mounting disk image on remote…"
@@ -74,10 +76,11 @@ final class InstallController {
     /// window. Note: this is intentionally a small subset of `Phase` —
     /// terminal states (`succeeded`, `failed`, `cancelled`) aren't steps.
     enum Step: Int, CaseIterable, Identifiable {
-        case compress, upload, mount, install, copy, detach, clean
+        case download, compress, upload, mount, install, copy, detach, clean
         var id: Int { rawValue }
         var label: String {
             switch self {
+            case .download: return "Download from Munki Repo"
             case .compress: return "Compress to DMG"
             case .upload:   return "Upload to remote /tmp"
             case .mount:    return "Mount disk image"
@@ -89,6 +92,7 @@ final class InstallController {
         }
         var matchingPhase: Phase {
             switch self {
+            case .download: return .downloading
             case .compress: return .compressing
             case .upload:   return .uploading
             case .mount:    return .mounting
@@ -100,6 +104,16 @@ final class InstallController {
         }
     }
 
+    /// Where the install runs. BSC hosts route SSH/scp through the BSC
+    /// gateway with a ProxyCommand; local-network hosts reach over the
+    /// LAN directly with no proxy.
+    struct DirectTarget: Equatable {
+        let hostname: String
+        let port: Int
+        let remoteUser: String
+        let displayName: String
+    }
+
     var phase: Phase = .idle
     var sudoPassword: String = ""
     var trailingLogLine: String = ""
@@ -107,34 +121,63 @@ final class InstallController {
     var log: String = ""                // full stdout+stderr for the disclosed Log pane
     var appMode: AppMode = .compress    // only consulted when localFile is a .app
     var fileMetadata: PackageMetadata?  // extracted from the local .pkg / .app (async)
+    /// True when this install was kicked off from the Munki Repo flow —
+    /// causes a leading `.download` step to be prepended so the user sees
+    /// fetching from S3 as part of the pipeline, not a silent gap.
+    var isMunki: Bool = false
+    /// What the file *will* be called once download finishes — lets the
+    /// header show the package name immediately even before localFile is set.
+    var pendingFileName: String = ""
+    /// Populated by `prepareDirect(…)` when the install target is a
+    /// Bonjour/Tailscale local-network host. When set, `makeScript`
+    /// drops the BSC ProxyCommand and reaches the remote directly.
+    private(set) var directTarget: DirectTarget?
 
     /// Step list for the current `localFile` + `appMode`. Used by the
     /// install window's stepped progress checklist.
     var steps: [Step] {
-        guard let url = localFile else { return [] }
-        let ext = url.pathExtension.lowercased()
-        switch ext {
-        case "pkg":
-            return [.upload, .install, .clean]
-        case "dmg":
-            return [.upload, .mount, .install, .detach, .clean]
-        case "app":
-            return appMode == .compress
-                ? [.compress, .upload, .mount, .copy, .detach, .clean]
-                : [.upload, .copy]
-        default:
+        let baseSteps: [Step]
+        if let url = localFile {
+            let ext = url.pathExtension.lowercased()
+            switch ext {
+            case "pkg":
+                baseSteps = [.upload, .install, .clean]
+            case "dmg":
+                baseSteps = [.upload, .mount, .install, .detach, .clean]
+            case "app":
+                baseSteps = appMode == .compress
+                    ? [.compress, .upload, .mount, .copy, .detach, .clean]
+                    : [.upload, .copy]
+            default:
+                baseSteps = []
+            }
+        } else if isMunki {
+            // localFile not set yet — guess from the pending filename so the
+            // step list isn't empty during the download phase.
+            let ext = (pendingFileName as NSString).pathExtension.lowercased()
+            switch ext {
+            case "pkg":   baseSteps = [.upload, .install, .clean]
+            case "dmg":   baseSteps = [.upload, .mount, .install, .detach, .clean]
+            default:      baseSteps = [.upload, .install, .clean]
+            }
+        } else {
             return []
         }
+        return isMunki ? [.download] + baseSteps : baseSteps
     }
 
     /// Where the package will land on the host, for display.
     var destinationDescription: String {
-        guard let url = localFile, let host else { return "" }
+        guard let url = localFile else { return "" }
+        let displayName: String
+        if let host { displayName = host.displayName }
+        else if let direct = directTarget { displayName = direct.displayName }
+        else { return "" }
         let ext = url.pathExtension.lowercased()
         if ext == "app" {
-            return "→ /Applications on \(host.displayName)"
+            return "→ /Applications on \(displayName)"
         }
-        return "→ \(host.displayName)"
+        return "→ \(displayName)"
     }
 
     /// Human-readable file size of `localFile` (recursive for .app bundles).
@@ -171,9 +214,19 @@ final class InstallController {
     @ObservationIgnored private var stdoutReader: Pipe?
     @ObservationIgnored private var lineBuffer: String = ""
     @ObservationIgnored private var errorTail: String = ""
+    /// Closure that performs the Munki S3 download and returns the local
+    /// path. Stored when `prepareMunkiPending` is called; consumed in
+    /// `start()` after the user enters their password and clicks Install.
+    /// Kept @ObservationIgnored — its identity isn't UI-relevant; the
+    /// `isMunki` + `phase` fields already drive observation.
+    @ObservationIgnored private var pendingDownload: (@MainActor () async throws -> URL)?
 
     var canStart: Bool {
-        host != nil && localFile != nil && (phase == .idle || phase.isTerminal)
+        let hasTarget = host != nil || directTarget != nil
+        guard hasTarget, (phase == .idle || phase.isTerminal) else { return false }
+        // Local-file install needs the file already; Munki-pending only
+        // needs the closure that will fetch it.
+        return localFile != nil || (isMunki && pendingDownload != nil)
     }
 
     /// True when the install has produced no useful state yet — used to
@@ -184,6 +237,7 @@ final class InstallController {
     func prepare(host: BlueSkyHost, localFile: URL, appMode: AppMode = .compress) {
         cancel()
         self.host = host
+        self.directTarget = nil
         self.localFile = localFile
         self.appMode = appMode
         self.phase = .idle
@@ -193,15 +247,87 @@ final class InstallController {
         self.progressPercent = 0
         self.log = ""
         self.fileMetadata = nil
+        self.isMunki = false
+        self.pendingFileName = ""
         Task { [weak self] in
             let m = await PackageMetadata.read(from: localFile)
             await MainActor.run { self?.fileMetadata = m }
         }
     }
 
+    /// Direct (no BSC tunnel) install — used by the Local Network sidebar
+    /// rows. SSH/scp reaches the remote over the LAN directly. Same
+    /// install pipeline shape as `prepare(host:…)`, just routed through
+    /// `directTarget` instead of a BlueSkyHost.
+    func prepareDirect(target: DirectTarget,
+                       localFile: URL,
+                       appMode: AppMode = .compress) {
+        cancel()
+        self.host = nil
+        self.directTarget = target
+        self.localFile = localFile
+        self.appMode = appMode
+        self.phase = .idle
+        self.trailingLogLine = ""
+        self.errorTail = ""
+        self.lineBuffer = ""
+        self.progressPercent = 0
+        self.log = ""
+        self.fileMetadata = nil
+        self.isMunki = false
+        self.pendingFileName = ""
+        Task { [weak self] in
+            let m = await PackageMetadata.read(from: localFile)
+            await MainActor.run { self?.fileMetadata = m }
+        }
+    }
+
+    /// Open the install window in `.idle` for a Munki install — the user
+    /// fills in the sudo password and clicks Install, then `start()` runs
+    /// the download FIRST (showing the `.download` step active) before
+    /// the normal upload/install pipeline. Gathering creds before any
+    /// network work matches the local-install flow and avoids the user
+    /// wandering off mid-download.
+    func prepareMunkiPending(host: BlueSkyHost,
+                             expectedFileName: String,
+                             download: @escaping @MainActor () async throws -> URL) {
+        prepareMunkiCommon(expectedFileName: expectedFileName, download: download)
+        self.host = host
+        self.directTarget = nil
+    }
+
+    /// Direct (local-network) variant of `prepareMunkiPending`. Fetches
+    /// the Munki package from S3 the same way, then runs the install
+    /// pipeline against `target` over the LAN instead of through BSC.
+    func prepareMunkiPendingDirect(target: DirectTarget,
+                                   expectedFileName: String,
+                                   download: @escaping @MainActor () async throws -> URL) {
+        prepareMunkiCommon(expectedFileName: expectedFileName, download: download)
+        self.host = nil
+        self.directTarget = target
+    }
+
+    private func prepareMunkiCommon(expectedFileName: String,
+                                    download: @escaping @MainActor () async throws -> URL) {
+        cancel()
+        self.localFile = nil
+        self.appMode = .compress
+        self.phase = .idle
+        self.trailingLogLine = ""
+        self.errorTail = ""
+        self.lineBuffer = ""
+        self.progressPercent = 0
+        self.log = ""
+        self.fileMetadata = nil
+        self.isMunki = true
+        self.pendingFileName = expectedFileName
+        self.pendingDownload = download
+    }
+
     func reset() {
         cancel()
         host = nil
+        directTarget = nil
         localFile = nil
         phase = .idle
         sudoPassword = ""
@@ -210,6 +336,9 @@ final class InstallController {
         lineBuffer = ""
         progressPercent = 0
         log = ""
+        isMunki = false
+        pendingFileName = ""
+        pendingDownload = nil
     }
 
     func cancel() {
@@ -226,8 +355,43 @@ final class InstallController {
     /// Start the install. Spawns one bash process that runs all phases
     /// in sequence, parsing the `▶ phase=...` marker lines it emits.
     func start(settings: SettingsStore) {
-        guard let host, let localFile else { return }
-        let script = makeScript(host: host, localFile: localFile, settings: settings)
+        guard host != nil || directTarget != nil else { return }
+        // Munki: download must complete (and set localFile) before we can
+        // build the upload pipeline script. Kick the fetch off here so the
+        // user only had to enter their password once.
+        if isMunki, localFile == nil, let download = pendingDownload {
+            pendingDownload = nil
+            phase = .downloading
+            log.append("▶ Downloading \(pendingFileName) from Munki Repo…\n")
+            Task { [weak self] in
+                do {
+                    let url = try await download()
+                    await MainActor.run {
+                        guard let self else { return }
+                        self.localFile = url
+                        self.log.append("✓ Download complete: \(url.lastPathComponent)\n")
+                        Task { [weak self] in
+                            let m = await PackageMetadata.read(from: url)
+                            await MainActor.run { self?.fileMetadata = m }
+                        }
+                        self.runInstallProcess(settings: settings)
+                    }
+                } catch {
+                    await MainActor.run {
+                        self?.log.append("✖ Download failed: \(error.localizedDescription)\n")
+                        self?.phase = .failed("Download: \(error.localizedDescription)")
+                    }
+                }
+            }
+            return
+        }
+        runInstallProcess(settings: settings)
+    }
+
+    private func runInstallProcess(settings: SettingsStore) {
+        guard let localFile else { return }
+        guard host != nil || directTarget != nil else { return }
+        let script = makeScript(localFile: localFile, settings: settings)
 
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/bin/bash")
@@ -371,18 +535,38 @@ final class InstallController {
     /// so it sees a PTY and emits its `\r`-separated `N%` progress lines
     /// — we parse those into `progressPercent`. Sudo password (if set)
     /// comes from `$BCADMIN_PW` (Process env), never argv.
-    private func makeScript(host: BlueSkyHost, localFile: URL, settings: SettingsStore) -> String {
-        let server = settings.serverFqdn
-        let serverSshPort = settings.sshTunnelPort
-        let adminKeyPath = settings.expandedKeyPath
-        let remoteUser = settings.defaultRemoteUser
+    private func makeScript(localFile: URL, settings: SettingsStore) -> String {
+        // Pick transport: BSC tunnel (ProxyCommand to localhost on the
+        // bastion) vs direct (LAN connection straight to the remote).
+        // The two branches differ only in the SSH/scp argument prefix.
+        let remoteUser: String
+        let sshPortArg: Int
+        let sshHostArg: String
+        let proxyOption: String
+        if let direct = directTarget {
+            remoteUser = direct.remoteUser
+            sshPortArg = direct.port
+            sshHostArg = direct.hostname
+            proxyOption = ""
+        } else if let host {
+            remoteUser = settings.defaultRemoteUser
+            sshPortArg = host.sshPort
+            sshHostArg = "localhost"
+            let proxy = "ProxyCommand=ssh -o WarnWeakCrypto=no -p \(settings.sshTunnelPort) -i \(settings.expandedKeyPath) admin@\(settings.serverFqdn) /bin/nc %h %p"
+            proxyOption = "-o \(Self.shq(proxy)) "
+        } else {
+            // canStart / start() guards prevent this, but make the
+            // compiler happy with a default.
+            remoteUser = settings.defaultRemoteUser
+            sshPortArg = 22
+            sshHostArg = "localhost"
+            proxyOption = ""
+        }
         let ext = localFile.pathExtension.lowercased()
         let isApp = ext == "app"
         let appRawMode = isApp && appMode == .raw
         let appDmgMode = isApp && appMode == .compress
         let isDmgInstall = ext == "dmg" || appDmgMode  // remote runs the mount/copy path
-
-        let proxy = "ProxyCommand=ssh -o WarnWeakCrypto=no -p \(serverSshPort) -i \(adminKeyPath) admin@\(server) /bin/nc %h %p"
 
         let appName = localFile.deletingPathExtension().lastPathComponent
         let uploadName: String = {
@@ -425,7 +609,7 @@ final class InstallController {
             ? "sudo bash -c \(Self.shq(installSteps))"
             : "sudo -S bash -c \(Self.shq(installSteps))"
 
-        let sshBase = "ssh -o \(Self.shq(proxy)) -o StrictHostKeyChecking=no -o WarnWeakCrypto=no -p \(host.sshPort) \(Self.shq("\(remoteUser)@localhost"))"
+        let sshBase = "ssh \(proxyOption)-o StrictHostKeyChecking=no -o WarnWeakCrypto=no -p \(sshPortArg) \(Self.shq("\(remoteUser)@\(sshHostArg)"))"
         let installSSH = sudoPassword.isEmpty
             ? sshBase.replacingOccurrences(of: "ssh ", with: "ssh -t ") + " \(Self.shq(sudoWrap))"
             : "printf '%s\\n' \"$BCADMIN_PW\" | \(sshBase) \(Self.shq(sudoWrap))"
@@ -433,9 +617,9 @@ final class InstallController {
         // ---- Upload command (scp through `script` so we get a TTY → % progress) ----
         // `script -q /dev/null` allocates a PTY transparently; scp sees a
         // terminal and emits its standard progress to stdout, which we parse.
-        let scpFlags = "-o \(Self.shq(proxy)) -o StrictHostKeyChecking=no -o WarnWeakCrypto=no -P \(host.sshPort)"
+        let scpFlags = "\(proxyOption)-o StrictHostKeyChecking=no -o WarnWeakCrypto=no -P \(sshPortArg)"
         let scpSrcLiteral: String        // safe to embed as bash literal (no shell metas)
-        let scpDestArg = Self.shq("\(remoteUser)@localhost:\(remotePath)")
+        let scpDestArg = Self.shq("\(remoteUser)@\(sshHostArg):\(remotePath)")
         let scpRecurse: String
         if appDmgMode {
             scpSrcLiteral = "\"$tmp_dmg\""  // bash variable, double-quoted so it expands

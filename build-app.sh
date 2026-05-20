@@ -22,7 +22,14 @@ APP_NAME="${APP_NAME:-BlueConnect Admin}"
 EXEC_NAME="${EXEC_NAME:-BlueConnectAdmin}"
 BUNDLE_ID="${BUNDLE_ID:-com.example.BlueConnectAdmin}"
 VERSION="${VERSION:-1.0.0}"
-BUILD_NUMBER="${BUILD_NUMBER:-1}"
+# .env-sign's BUILD_NUMBER is a starting hint, not a pin. If the env-sign
+# value is what we just read (no caller override), bump to a fresh
+# timestamp so each dev build reports a unique Info.plist version.
+# release.sh sets its own monotonic counter and exports it after sourcing
+# .env-sign, so that path still takes precedence.
+if [[ -z "${BUILD_NUMBER_EXPLICIT:-}" ]]; then
+    BUILD_NUMBER="$(date +%Y%m%d.%H%M%S)"
+fi
 SIGN_ID="${SIGN_ID:-}"   # empty → ad-hoc signature
 APP_BUNDLE="$PROJECT_ROOT/$APP_NAME.app"
 
