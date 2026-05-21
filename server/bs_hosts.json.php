@@ -107,15 +107,19 @@ if ($bsIdxR && $bsIdxR->num_rows === 0) {
 }
 
 /** Resolve the actual installed BlueSky version, in this order:
- *   1. /usr/local/bin/BlueSky/Server/version.json — authoritative; ships in
- *      the dev2xx image.
- *   2. /usr/local/bin/BlueSky/version.json — earlier path (pre-2.5.0).
- *   3. BLUESKY_VERSION env var — fallback for the 2.3.2 image which
- *      doesn't ship version.json.
+ *   1. /usr/local/bin/BlueSkyConnect/Server/version.json — current path
+ *      (dev2xx+ and ghcr.io/blueskytools/blueskyconnect:latest).
+ *   2. /usr/local/bin/BlueSkyConnect/version.json — sibling location.
+ *   3. /usr/local/bin/BlueSky/Server/version.json — pre-dev2xx legacy.
+ *   4. /usr/local/bin/BlueSky/version.json — earlier legacy.
+ *   5. BLUESKY_VERSION env var — fallback for images that don't ship
+ *      version.json (e.g. 2.3.2).
  *  Decoupling the reported version from the env var means an upgrade no
  *  longer requires hand-editing .env. */
 function bs_bluesky_version(): string {
     $candidates = [
+        '/usr/local/bin/BlueSkyConnect/Server/version.json',
+        '/usr/local/bin/BlueSkyConnect/version.json',
         '/usr/local/bin/BlueSky/Server/version.json',
         '/usr/local/bin/BlueSky/version.json',
     ];

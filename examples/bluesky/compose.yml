@@ -69,15 +69,18 @@ services:
       - ./bluesky.ssh:/home/bluesky/.ssh
 
       # BlueConnect Admin endpoints — individual FILE mounts (not a dir
-      # mount) so we overlay just these five into the container's stock
-      # /html/ without shadowing everything else BSC ships there. Yes,
-      # this looks chaotic. It's the cleanest way to layer custom
-      # endpoints onto a stock upstream image.
+      # mount) so we overlay just these endpoints + the shared auth
+      # helper into the container's stock /html/ without shadowing
+      # everything else BSC ships there. Yes, this looks chaotic. It's
+      # the cleanest way to layer custom endpoints onto a stock upstream
+      # image.
+      - ./bs_auth.php:/usr/local/bin/BlueSkyConnect/Server/html/bs_auth.php:ro
       - ./bs_hosts.json.php:/usr/local/bin/BlueSkyConnect/Server/html/bs_hosts.json.php:ro
       - ./bs_categories.json.php:/usr/local/bin/BlueSkyConnect/Server/html/bs_categories.json.php:ro
       - ./bs_health.json.php:/usr/local/bin/BlueSkyConnect/Server/html/bs_health.json.php:ro
       - ./bs_host_action.json.php:/usr/local/bin/BlueSkyConnect/Server/html/bs_host_action.json.php:ro
       - ./bs_host_update.json.php:/usr/local/bin/BlueSkyConnect/Server/html/bs_host_update.json.php:ro
+      - ./bs_authkeys_audit.json.php:/usr/local/bin/BlueSkyConnect/Server/html/bs_authkeys_audit.json.php:ro
 
       # Optional: custom fail2ban action that includes WHOIS context in
       # alert emails. Drop the file if you don't need it.

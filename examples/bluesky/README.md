@@ -66,6 +66,16 @@ The SQL files under `migrations/` ship for reference and for ops who
 want to apply them manually before first request (e.g. provisioning
 automation). The endpoints heal themselves regardless.
 
+## Auth modes for the BlueConnect Admin endpoints
+
+The five `bs_*.json.php` endpoints (plus the optional `bs_authkeys_audit.json.php`) go through a shared `bs_auth.php` for HTTP Basic verification. Two modes are supported, picked via the `WEBADMIN_AUTH` env var:
+
+- **`env`** — compares the request password to `WEBADMINPASS` from the container env. Original behavior. **Footgun:** rotating the admin password through the BSC web UI updates the database but not the env var, so the endpoints silently keep accepting the *old* password and reject the live one until you also edit `.env` and recreate the container.
+- **`db`** — verifies the (username, password) pair against `membership_users.passMD5` the same way the BSC web UI itself does (lcased `memberID`, `isApproved=1`, `isBanned=0`, MD5 comparison). Rotations through the BSC web UI immediately take effect for the Mac client too. **Recommended for new deployments.**
+- **`auto`** — default. Picks `db` when `WEBADMINPASS` is empty, else `env`. In practice the upstream BSC `run` script **requires** `WEBADMINPASS` to be set on every boot (it loops on an interactive "Please enter a password" prompt otherwise), so auto-mode almost always resolves to `env`. Use `WEBADMIN_AUTH=db` explicitly to opt in.
+
+**To opt into DB mode**, add `WEBADMIN_AUTH=db` to your `.env` (leave `WEBADMINPASS` set so the container can boot) and `docker compose up -d --force-recreate bluesky`. Reversible by removing the line.
+
 ## Why so many file-level bind mounts?
 
 The `bluesky` service mounts each of the five `bs_*.json.php` endpoint files **individually** rather than mounting the whole `./` directory at `/usr/local/bin/BlueSkyConnect/Server/html/`. That's intentional — a directory mount would shadow the rest of the stock BSC frontend that ships in the image (index.php, the auth handlers, assets, etc.). File-level mounts overlay just the five endpoints we add.

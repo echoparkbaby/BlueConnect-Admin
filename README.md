@@ -33,7 +33,7 @@ Grab the latest signed and notarized `.dmg` from the [Releases page](../../relea
 ## Requirements
 
 - A running [BlueSkyConnect](https://github.com/BlueSkyTools/BlueSkyConnect) server
-- The five BlueConnect Admin PHP endpoints deployed on that server (see [Server setup](#server-setup))
+- The BlueConnect Admin PHP endpoints deployed on that server (see [Server setup](#server-setup))
 - macOS 14 (Sonoma) or later
 - An SSH key authorized on your BlueSkyConnect server
 - BlueSky web admin credentials
@@ -44,7 +44,7 @@ The app has four integrations. Only **one is required** — the BlueSkyConnect e
 
 | Integration | Required? | What you have to deploy server-side |
 |---|---|---|
-| **BlueSkyConnect endpoints** | **yes** — the app reads its host list from here | 5 small PHP files (`server/bs_*.php`) on your BSC server |
+| **BlueSkyConnect endpoints** | **yes** — the app reads its host list from here | A small set of PHP files (`server/bs_*.php`) on your BSC server |
 | **Direct Package Repo** | optional | One PHP file (`server/catalog.php`) in your `pkgs/` directory **OR** a static `catalog.json` |
 | **Munki Repo (Wasabi/S3)** | optional | **Nothing.** Uses your existing S3-compatible bucket. Just enter credentials in Settings. |
 | **MunkiReport API** | optional | One PHP file (`server/munkireport-module/blueconnect_api.php`) in your MR webroot + a token env var |
@@ -53,20 +53,22 @@ Quick recap of every file shipped under `server/`:
 
 ```
 server/
-├── bs_categories.json.php   ┐
-├── bs_health.json.php       │  BSC endpoints — deploy as a group
-├── bs_host_action.json.php  ├─ via deploy-server.sh
-├── bs_host_update.json.php  │
-├── bs_hosts.json.php        ┘
-├── catalog.php              — Optional: drop in Direct Package Repo's pkgs/ dir
+├── bs_auth.php                  ┐
+├── bs_categories.json.php       │  BSC endpoints + shared HTTP-Basic
+├── bs_health.json.php           │  helper — deploy as a group via
+├── bs_host_action.json.php      ├─ deploy-server.sh
+├── bs_host_update.json.php      │
+├── bs_hosts.json.php            │
+├── bs_authkeys_audit.json.php   ┘  (optional — orphan-key audit)
+├── catalog.php                  — Optional: drop in Direct Package Repo's pkgs/ dir
 ├── munkireport-module/
-│   └── blueconnect_api.php  — Optional: drop in MunkiReport's public/ dir
-└── migrations/              — Auto-run by BSC endpoints on first request
+│   └── blueconnect_api.php      — Optional: drop in MunkiReport's public/ dir
+└── migrations/                  — Auto-run by BSC endpoints on first request
 ```
 
 ### 1. BlueSkyConnect endpoints (required)
 
-Stock BlueSkyConnect ships an HTML admin UI but no JSON API. This Mac app needs five small read-mostly PHP endpoints (in `server/`) deployed once to your BSC server's web root. They don't change BSC's behavior — they translate the existing database state into JSON.
+Stock BlueSkyConnect ships an HTML admin UI but no JSON API. This Mac app needs a handful of small read-mostly PHP endpoints (in `server/`) deployed once to your BSC server's web root. They don't change BSC's behavior — they translate the existing database state into JSON.
 
 > **Setting up BSC from scratch?** A working `docker-compose.yml` + `.env.example` + step-by-step README is in [`examples/bluesky/`](examples/bluesky/). Copy that template if you don't already have a BSC stack running.
 
@@ -96,6 +98,15 @@ curl -i -u admin:$WEBADMINPASS https://<host>/bs_hosts.json.php
 ```
 
 If the app's login screen shows *"The server responded but doesn't have the BlueConnect Admin endpoints"*, that's the deploy step still missing.
+
+#### Auth modes (`WEBADMIN_AUTH`)
+
+The endpoints share `bs_auth.php` for HTTP Basic verification, with two modes selected by the `WEBADMIN_AUTH` container env var:
+
+- **`env`** (default) — compares against `WEBADMINPASS`. Backward-compatible. **Footgun:** rotating the admin password through the BSC web UI updates the database but not the env var, so the endpoints silently keep accepting the *old* password.
+- **`WEBADMIN_AUTH=db`** — verifies against `membership_users.passMD5` the way the BSC web UI itself does. Rotations through the web UI immediately take effect. **Recommended for new deployments.**
+
+See [`examples/bluesky/README.md`](examples/bluesky/README.md) for the full walkthrough.
 
 ### 2. Direct Package Repo (optional)
 

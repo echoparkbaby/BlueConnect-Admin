@@ -42,11 +42,37 @@ header('Cache-Control: no-cache, must-revalidate, max-age=0');
 
 $dir = __DIR__;
 
-// Derive the public baseURL from the request — same directory as this script.
-$proto    = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-$host     = $_SERVER['HTTP_HOST'] ?? 'localhost';
-$reqDir   = rtrim(dirname($_SERVER['REQUEST_URI'] ?? '/'), '/');
-$baseURL  = "$proto://$host$reqDir/";
+// Derive the public baseURL. PRIORITY:
+//   1. metadata.json's `_baseURL` (explicit, trusted, set by admin)
+//   2. Validated HTTP_HOST + REQUEST_URI (sanitized to defang Host-header
+//      poisoning — a hostile reverse proxy or curl --header could push
+//      arbitrary Host: values; we reject anything not matching the
+//      allowed hostname/port charset and fall back to SERVER_NAME)
+// REQUEST_URI is reduced to its directory and validated to be a plain
+// path (no schemes, no query, no traversal segments) before use.
+
+$proto = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+
+// Validate Host header. ^[A-Za-z0-9._-]+(:[0-9]{1,5})?$ — any other
+// character (slash, @, space, control chars) drops us to SERVER_NAME,
+// which is set by Apache's vhost config and not client-controllable.
+$rawHost = (string)($_SERVER['HTTP_HOST'] ?? '');
+if (preg_match('/^[A-Za-z0-9._-]+(:[0-9]{1,5})?$/', $rawHost) === 1) {
+    $host = $rawHost;
+} else {
+    $host = (string)($_SERVER['SERVER_NAME'] ?? 'localhost');
+}
+
+// Trim the script name off REQUEST_URI; keep only the directory portion
+// and only if it looks like a plain path (no traversal, no protocol).
+$rawUri = (string)($_SERVER['REQUEST_URI'] ?? '/');
+$rawUri = strtok($rawUri, '?');  // drop query string
+$rawDir = rtrim(dirname($rawUri), '/');
+$reqDir = (preg_match('#^(?:/[A-Za-z0-9._~%!$&\'()*+,;=:@-]+)*$#', $rawDir) === 1)
+        ? $rawDir
+        : '';
+
+$baseURL = "$proto://$host$reqDir/";
 
 // Pull optional sidecar metadata.
 $metadata = [];
@@ -59,6 +85,17 @@ if (file_exists($metaPath)) {
         if (isset($decoded['_catalogName'])) {
             $catalogName = (string)$decoded['_catalogName'];
             unset($decoded['_catalogName']);
+        }
+        // Admin-set `_baseURL` overrides the derived value above. Use
+        // this when the catalog is behind a CDN, a tunnel, or any
+        // setup where the Host header doesn't reflect the public URL.
+        if (isset($decoded['_baseURL']) && is_string($decoded['_baseURL']) && $decoded['_baseURL'] !== '') {
+            $override = rtrim($decoded['_baseURL'], '/') . '/';
+            // Only honor http(s) URLs — refuse file://, javascript:, etc.
+            if (preg_match('#^https?://#i', $override) === 1) {
+                $baseURL = $override;
+            }
+            unset($decoded['_baseURL']);
         }
         $metadata = $decoded;
     }
