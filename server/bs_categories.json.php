@@ -4,7 +4,8 @@
 // POST   {name}                        → create a (possibly empty) category
 // DELETE {name, clearFromHosts?:bool}  → delete a category; optionally null-out
 //                                          all computers.category that match
-// Auth: HTTP Basic, password = WEBADMINPASS
+// Auth: HTTP Basic — WEBADMINPASS by default, or the live web-admin password in
+//       the DB when WEBADMIN_AUTH=db (or WEBADMINPASS is unset). See bs_auth.php.
 
 ini_set('display_errors', '0');
 ini_set('log_errors', '1');
@@ -32,13 +33,7 @@ function bs_fail(int $code, string $msg, array $extra = []): void {
 
 header('Content-Type: application/json');
 
-$expectedPass = trim(bs_env('WEBADMINPASS'));
-if ($expectedPass === '') bs_fail(500, 'WEBADMINPASS not set');
-$givenPass = trim($_SERVER['PHP_AUTH_PW'] ?? '');
-if ($givenPass === '' || !hash_equals($expectedPass, $givenPass)) {
-    header('WWW-Authenticate: Basic realm="BlueSky Hosts"');
-    bs_fail(401, 'unauthorized');
-}
+require __DIR__ . '/bs_auth.php';
 
 $dbHost = bs_env('MYSQLSERVER') ?: 'db';
 $dbPass = bs_env('MYSQLROOTPASS');
