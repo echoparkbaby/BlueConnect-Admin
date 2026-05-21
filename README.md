@@ -4,6 +4,16 @@ A native macOS admin client for [BlueSkyConnect](https://github.com/BlueSkyTools
 
 ![BlueConnect Admin screenshot](Resources/screenshot.png)
 
+> [!IMPORTANT]
+> **Upgrading from v1.1.x? Re-deploy the server-side PHP after updating the Mac app.**
+> [v1.2.0](https://github.com/echoparkbaby/BlueConnect-Admin/releases/tag/v1.2.0) ships critical fixes to the `bs_*.json.php` endpoints — most notably a bug in `bs_host_action.json.php` where the **Delete Host** action could strip every reverse-tunnel SSH key from `/home/bluesky/.ssh/authorized_keys`, not just the deleted host's. The Mac app upgrade alone doesn't pick up those server-side fixes; you have to push the new PHP files:
+>
+> ```sh
+> ./deploy-server.sh <ssh-user>@<bsc-host>
+> ```
+>
+> See the [v1.2.0 release notes](https://github.com/echoparkbaby/BlueConnect-Admin/releases/tag/v1.2.0) for the full list (health-probe hardening, DB-backed auth option, migration-ordering fix, new orphan-key audit endpoint).
+
 ## Highlights
 
 ### Munki repo browser & installer · MunkiReport inventory in the side pane
