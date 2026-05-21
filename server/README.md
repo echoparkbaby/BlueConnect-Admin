@@ -9,6 +9,7 @@ sure the PHP process can read the environment variables the scripts expect.
 ```text
 server/
 ├── README.md
+├── bs_auth.php
 ├── bs_health.json.php
 ├── bs_hosts.json.php
 ├── bs_host_action.json.php
@@ -30,7 +31,11 @@ server/
 
 These scripts expect the following environment variables to be available to PHP:
 
-- `WEBADMINPASS` — shared password for the Basic-auth protected endpoints
+- `WEBADMINPASS` — shared password for the Basic-auth protected endpoints (default
+  auth mode)
+- `WEBADMIN_AUTH` — optional auth mode selector; set to `db` to authenticate against
+  the live web-admin password in the database instead of `WEBADMINPASS` (see
+  _Authentication_)
 - `MYSQLROOTPASS` — MySQL root password
 - `MYSQLSERVER` — optional database host override; defaults to `db`
 - `SERVERFQDN` — optional server hostname reported back to the app
@@ -63,8 +68,26 @@ using your normal MySQL administration workflow.
 
 ## Authentication
 
-The authenticated endpoints use HTTP Basic auth and compare the supplied
-password against `WEBADMINPASS`. The username is not used for authorization.
+The authenticated endpoints share `bs_auth.php`, which supports two modes selected
+by the `WEBADMIN_AUTH` environment variable:
+
+- **`WEBADMINPASS` (default).** The supplied password is compared against the
+  `WEBADMINPASS` env var; the username is ignored. This is the original behavior and
+  remains the default.
+- **`WEBADMIN_AUTH=db`.** The supplied username/password are verified against the
+  live web-admin account in the database — `md5(password)` vs
+  `membership_users.passMD5`, matching the web admin's own login, restricted to
+  approved, non-banned accounts. Use this when the web-admin password can be changed
+  from the UI: `WEBADMINPASS` is only a snapshot taken at container start, so it goes
+  stale once the password is rotated, whereas DB auth always honors the current
+  password. This mode reuses the `MYSQLROOTPASS` / `MYSQLSERVER` env the endpoints
+  already use for their data queries.
+
+If `WEBADMIN_AUTH` is unset and `WEBADMINPASS` is empty, the endpoints fall back to
+`db` mode so a server that only configures the database still authenticates.
+
+`bs_health.json.php` is intentionally unauthenticated and does not include
+`bs_auth.php`.
 
 ## PHP Constraints
 
