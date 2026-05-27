@@ -17,6 +17,18 @@ struct ScannedTableWindow: View {
     /// AppStorage key isolates it from any other Table we add later.
     @AppStorage("scannedTableColumns") private var columnsRaw: String = ""
     @State private var columnCustomization: TableColumnCustomization<Row> = .init()
+    /// Global text-size multiplier for the Scanned Table. ⌘+ / ⌘-
+    /// nudge it; ⌘0 resets. Persisted so the operator's preferred
+    /// zoom survives quit. Clamped to [0.7, 1.6] so the UI can't
+    /// shrink past readability or blow the column widths out.
+    @AppStorage("scannedTableFontScale") private var fontScale: Double = 1.0
+
+    /// Base sizes the scale applies to. The IP column gets a bump
+    /// over the other monospace fields because it's the primary
+    /// identifier most operators eyeball.
+    private var smallSize: CGFloat { CGFloat(11 * fontScale) }
+    private var ipSize: CGFloat    { CGFloat(13 * fontScale) }
+    private var rowSize: CGFloat   { CGFloat(12 * fontScale) }
 
     /// Flattened row type combining LocalService probe data + UniFi
     /// integration-API client data. Every field is a sortable
@@ -35,7 +47,6 @@ struct ScannedTableWindow: View {
         let speedMbps: Double
         let mac: String
         let vlan: String
-        let source: String
     }
 
     private var rows: [Row] {
@@ -58,8 +69,7 @@ struct ScannedTableWindow: View {
                     if let net = u.network, !net.isEmpty { return net }
                     if let v = u.vlan { return "\(v)" }
                     return ""
-                } ?? "",
-                source: svc.source.rawValue.capitalized
+                } ?? ""
             )
         }
     }
@@ -76,7 +86,6 @@ struct ScannedTableWindow: View {
             || r.mac.lowercased().contains(q)
             || r.typeLabel.lowercased().contains(q)
             || r.vlan.lowercased().contains(q)
-            || r.source.lowercased().contains(q)
         }
     }
 
@@ -97,6 +106,27 @@ struct ScannedTableWindow: View {
             }
         }
         .frame(minWidth: 600, idealWidth: 1100, minHeight: 400, idealHeight: 900)
+        // Hidden font-scale shortcuts. SwiftUI dispatches
+        // keyboardShortcut bindings to whichever button is in the
+        // key window — so these only fire when the Scanned Table
+        // window is focused, never colliding with anywhere else
+        // ⌘+ / ⌘- might mean something.
+        //
+        // The `=` key equivalent is what macOS sends for ⌘+ on a
+        // US keyboard; binding to it gives the natural "press ⌘
+        // and the plus key" feel without forcing Shift.
+        .background(
+            Group {
+                Button("Zoom in")  { bumpScale(by: 0.1) }
+                    .keyboardShortcut("=", modifiers: [.command])
+                Button("Zoom out") { bumpScale(by: -0.1) }
+                    .keyboardShortcut("-", modifiers: [.command])
+                Button("Reset zoom") { fontScale = 1.0 }
+                    .keyboardShortcut("0", modifiers: [.command])
+            }
+            .opacity(0).frame(width: 0, height: 0)
+            .accessibilityHidden(true)
+        )
         .task { await runScan() }
         .onAppear {
             // Restore persisted column order/visibility on first
@@ -204,6 +234,7 @@ struct ScannedTableWindow: View {
                     Image(systemName: "desktopcomputer")
                         .foregroundStyle(.tint)
                     Text(r.dnsName)
+                        .font(.system(size: rowSize))
                         .help(r.dnsName == r.ip ? "" : "Resolved from \(r.ip)")
                         .lineLimit(1)
                 }
@@ -211,9 +242,12 @@ struct ScannedTableWindow: View {
             .width(min: 130, ideal: 180)
             .customizationID("dnsName")
             TableColumn("IP", value: \.ipSortKey) { (r: Row) in
-                Text(r.ip).font(.caption.monospaced())
+                // IP gets a slightly bigger monospace face — it's the
+                // primary identifier most operators read across the
+                // row, and the previous .caption made it cramped.
+                Text(r.ip).font(.system(size: ipSize, design: .monospaced))
             }
-            .width(min: 100, ideal: 110, max: 130)
+            .width(min: 110, ideal: 130, max: 160)
             .customizationID("ip")
             TableColumn("SSH", value: \.sshSort) { (r: Row) in
                 Image(systemName: r.hasSSH ? "checkmark.circle.fill" : "xmark.circle")
@@ -232,46 +266,46 @@ struct ScannedTableWindow: View {
                     HStack(spacing: 3) {
                         Image(systemName: r.isWired ? "cable.connector" : "wifi")
                             .foregroundStyle(r.isWired ? .green : .blue)
-                        Text(r.typeLabel).font(.caption)
+                        Text(r.typeLabel).font(.system(size: smallSize))
                     }
                 } else {
-                    Text("—").foregroundStyle(.tertiary).font(.caption)
+                    Text("—").foregroundStyle(.tertiary).font(.system(size: smallSize))
                 }
             }
             .width(min: 70, ideal: 75, max: 95)
             .customizationID("type")
             TableColumn("Speed", value: \.speedMbps) { (r: Row) in
                 if let display = scanner.unifiByIP[r.ip]?.displaySpeed {
-                    Text(display).font(.caption.monospaced())
+                    Text(display).font(.system(size: smallSize, design: .monospaced))
                 } else {
-                    Text("—").foregroundStyle(.tertiary).font(.caption)
+                    Text("—").foregroundStyle(.tertiary).font(.system(size: smallSize))
                 }
             }
             .width(min: 60, ideal: 70, max: 90)
             .customizationID("speed")
             TableColumn("VLAN", value: \.vlan) { (r: Row) in
                 if !r.vlan.isEmpty {
-                    Text(r.vlan).font(.caption)
+                    Text(r.vlan).font(.system(size: smallSize))
                 } else {
-                    Text("—").foregroundStyle(.tertiary).font(.caption)
+                    Text("—").foregroundStyle(.tertiary).font(.system(size: smallSize))
                 }
             }
-            .width(min: 60, ideal: 80, max: 120)
+            // Tightened: most VLAN labels are 1–3 chars (numeric tag)
+            // or a short SSID name. The previous 60–120 reserved more
+            // horizontal real estate than the data ever needed.
+            .width(min: 40, ideal: 52, max: 80)
             .customizationID("vlan")
             TableColumn("MAC", value: \.mac) { (r: Row) in
                 if !r.mac.isEmpty {
-                    Text(r.mac).font(.caption.monospaced()).foregroundStyle(.secondary)
+                    Text(r.mac)
+                        .font(.system(size: smallSize, design: .monospaced))
+                        .foregroundStyle(.secondary)
                 } else {
-                    Text("—").foregroundStyle(.tertiary).font(.caption)
+                    Text("—").foregroundStyle(.tertiary).font(.system(size: smallSize))
                 }
             }
             .width(min: 110, ideal: 125, max: 145)
             .customizationID("mac")
-            TableColumn("Source", value: \.source) { (r: Row) in
-                Text(r.source).font(.caption).foregroundStyle(.secondary)
-            }
-            .width(min: 55, ideal: 65, max: 80)
-            .customizationID("source")
         }
         .contextMenu(forSelectionType: Row.ID.self) { ids in
             if let id = ids.first, let row = rows.first(where: { $0.id == id }) {
@@ -301,9 +335,28 @@ struct ScannedTableWindow: View {
         await scanner.scan(cidrs: cidrs, bonjourCandidates: candidates, unifi: unifi)
     }
 
+    /// Nudge the font scale and clamp it. The clamp matters because
+    /// AppStorage will happily store -0.4 if we let it, which would
+    /// render every row as a black sliver with no recoverable UI to
+    /// reset from.
+    private func bumpScale(by delta: Double) {
+        let next = (fontScale + delta).rounded(toPlaces: 2)
+        fontScale = min(max(next, 0.7), 1.6)
+    }
+
     private static func ipSortKey(_ ip: String) -> UInt32 {
         let parts = ip.split(separator: ".").compactMap { UInt32($0) }
         guard parts.count == 4 else { return 0 }
         return (parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3]
+    }
+}
+
+private extension Double {
+    /// Two-decimal rounding so AppStorage doesn't accumulate
+    /// floating-point lint after a dozen ⌘+ presses (1.0 + 0.1 * n
+    /// drifts to 1.2999999… without this).
+    func rounded(toPlaces n: Int) -> Double {
+        let m = pow(10.0, Double(n))
+        return (self * m).rounded() / m
     }
 }
