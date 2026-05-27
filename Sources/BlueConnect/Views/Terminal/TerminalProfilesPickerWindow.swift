@@ -27,16 +27,22 @@ struct TerminalProfilesPickerWindow: View {
         let fontSize: Double
         let useInconsolata: Bool
 
-        /// Font name comparison is loose (empty vs Inconsolata) so the
-        /// "Default" card still highlights on machines without the
-        /// third-party font. `@MainActor` because SettingsStore's
-        /// `@AppStorage` properties are main-actor-isolated.
+        /// True when the live SettingsStore matches every dimension
+        /// of this preset, including font. Without the font check,
+        /// Peppermint (Inconsolata) and Default (System Mono) — which
+        /// share bg/fg/cursor — both lit up active simultaneously.
+        /// `@MainActor` because SettingsStore's `@AppStorage` props
+        /// are main-actor-isolated.
         @MainActor
         func matches(settings: SettingsStore) -> Bool {
-            settings.terminalBackgroundHex.lowercased() == backgroundHex.lowercased()
+            let wantsInconsolata = useInconsolata
+                && NSFont(name: "Inconsolata-Regular", size: CGFloat(fontSize)) != nil
+            let expectedFontName = wantsInconsolata ? "Inconsolata-Regular" : ""
+            return settings.terminalBackgroundHex.lowercased() == backgroundHex.lowercased()
                 && settings.terminalForegroundHex.lowercased() == foregroundHex.lowercased()
                 && settings.terminalCursorHex.lowercased() == cursorHex.lowercased()
                 && Int(settings.terminalFontSize) == Int(fontSize)
+                && settings.terminalFontName == expectedFontName
         }
     }
 

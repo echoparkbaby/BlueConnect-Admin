@@ -3,6 +3,22 @@ import SwiftUI
 
 @MainActor
 final class SettingsStore: ObservableObject {
+    /// Register fallback defaults in `UserDefaults.standard` for keys
+    /// that non-SwiftUI code (e.g. `TerminalSession.applyAppearance`)
+    /// reads directly. `@AppStorage`'s declared defaults only return
+    /// when the SwiftUI property is *read*; they never materialize as
+    /// actual stored values, so a `UserDefaults.standard.string(forKey:)`
+    /// from outside a view returns nil on a fresh install. Registering
+    /// here keeps direct readers and `@AppStorage` consumers in sync.
+    init() {
+        UserDefaults.standard.register(defaults: [
+            "terminalFontName":      "Inconsolata-Regular",
+            "terminalFontSize":      14.0,
+            "terminalForegroundHex": "#50FA7B",
+            "terminalBackgroundHex": "#0F0F0F",
+            "terminalCursorHex":     "#FF2734",
+        ])
+    }
     /// Full URL for the JSON host-list endpoint's *base*. The app appends
     /// `/bs_hosts.json.php` to this. Examples:
     ///   https://bluesky.example.com

@@ -178,20 +178,18 @@ struct ContentView: View {
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .bcDetachActiveTerminalFullScreen)) { _ in
-                // Detach + open the window, then toggle full-screen
-                // after SwiftUI has installed the NSWindow. The 0.15s
-                // delay is enough to give the WindowGroup machinery
-                // time to register the new window in `NSApp.windows`;
-                // any shorter and `toggleFullScreen` runs against a
-                // nil window and silently no-ops.
+                // Detach + open the window, then toggle full-screen on
+                // *this* session's window — not whichever window's
+                // title happens to start with "Terminal". With more
+                // than one detached terminal open, the old
+                // title-prefix lookup full-screened the wrong window.
+                // Walking up from `session.view.window` is exact: the
+                // SwiftTerm NSView is hosted by exactly the window we
+                // just opened.
                 guard let id = terminals.detachActive() else { return }
                 openWindow(id: "detached-terminal", value: id)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                    let title = "Terminal"
-                    if let win = NSApp.windows.last(where: { $0.title.hasPrefix(title) }) {
-                        win.toggleFullScreen(nil)
-                    }
-                }
+                guard let session = terminals.sessions.first(where: { $0.id == id }) else { return }
+                fullScreenWhenReady(view: session.view, attemptsLeft: 12)
             }
             .onReceive(NotificationCenter.default.publisher(for: .blueConnectOpenActivityLog)) { _ in
                 showingActivityLog = true
@@ -542,6 +540,24 @@ struct ContentView: View {
         .sheet(item: $munkiReportInventoryHost) { h in
             MunkiReportInventoryView(host: h)
                 .environmentObject(settings)
+        }
+    }
+
+    /// Poll for the NSWindow that hosts `view` to materialize, then
+    /// call `toggleFullScreen`. Necessary because SwiftUI doesn't
+    /// install the new `WindowGroup` window synchronously when
+    /// `openWindow` returns — there's a brief gap during which
+    /// `view.window` is nil. Up to ~600ms of polling at 50ms ticks
+    /// (12 attempts), then give up silently so a missed-window race
+    /// doesn't leak a timer.
+    private func fullScreenWhenReady(view: NSView, attemptsLeft: Int) {
+        if let window = view.window {
+            window.toggleFullScreen(nil)
+            return
+        }
+        guard attemptsLeft > 0 else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            fullScreenWhenReady(view: view, attemptsLeft: attemptsLeft - 1)
         }
     }
 
