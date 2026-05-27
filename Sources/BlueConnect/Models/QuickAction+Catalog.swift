@@ -1246,12 +1246,12 @@ extension QuickAction {
             ],
             tabLabel: "largetype", isDestructive: false,
             help: """
-            Throws a full-screen big-text message in front of the user via largetype ([github.com/abdusco/largetype](https://github.com/abdusco/largetype)). Deploys to `/usr/local/bin/largetype`.
+            Displays a full-screen text message in front of the user via [largetype](https://github.com/abdusco/largetype).
 
             **Requires either:**
 
-            1. Install **"Setup: Install GUI Helper"** Quick Action.
-            2. **BlueConnectHelper.pkg.** Signed/Notarized: [BlueConnectHelper.pkg](https://github.com/echoparkbaby/BlueConnect-Admin/releases/latest/download/BlueConnectHelper.pkg).
+            1. **Quick Action** — "Setup: Install GUI Helper"
+            2. **Package Install** — [BlueConnectHelper.pkg](https://github.com/echoparkbaby/BlueConnect-Admin/releases/latest/download/BlueConnectHelper.pkg)
             """,
             buildCommand: { v in
                 let msg = shq(v["msg"] ?? "")
