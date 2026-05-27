@@ -44,12 +44,17 @@ xcrun stapler validate "$DMG"
 
 echo "▶ git tag $TAG"
 git tag "$TAG" 2>/dev/null || echo "  (tag already exists, skipping)"
-# Push the tag to the GitHub remote (default name: 'github'). If you only
-# have one remote, change to: git push --tags
-git push github "$TAG" 2>/dev/null || git push --tags
+# Push the tag to BOTH remotes — github (public mirror) and origin
+# (Forgejo home). Older release.sh only pushed to github; the v1.4.0
+# cut showed why that's bad. `|| true` per remote so a single-remote
+# failure doesn't abort the entire release.
+echo "▶ push tag to github + origin"
+git push github "$TAG" 2>/dev/null || echo "  (github tag push skipped)"
+git push origin "$TAG" 2>/dev/null || echo "  (origin tag push skipped)"
 
-echo "▶ gh release create"
 NOTES="${RELEASE_NOTES_FILE:-$PROJECT_ROOT/RELEASE_NOTES.md}"
+
+echo "▶ gh release create (GitHub)"
 if [[ -f "$NOTES" ]]; then
     gh release create "$TAG" "$DMG" \
         --repo "$GITHUB_REPO" \
@@ -60,6 +65,39 @@ else
         --repo "$GITHUB_REPO" \
         --title "$TAG" \
         --generate-notes
+fi
+
+# Forgejo release — POST a release record + upload the DMG as an
+# asset. Config is optional: skip if FORGEJO_BASE / FORGEJO_TOKEN
+# aren't set in .env-sign. The Forgejo repo path is derived from
+# the `origin` remote URL: parse the path after the host, strip
+# trailing `.git`. Token scope needed: `write:repository`.
+if [[ -n "${FORGEJO_BASE:-}" && -n "${FORGEJO_TOKEN:-}" ]]; then
+    FORGEJO_REPO_PATH="$(git remote get-url origin | sed -E 's#^https?://[^/]+/##; s#\.git$##')"
+    echo "▶ Forgejo release: $FORGEJO_BASE/$FORGEJO_REPO_PATH"
+    BODY="$(if [[ -f "$NOTES" ]]; then cat "$NOTES"; else echo "$TAG"; fi)"
+    REL_JSON=$(jq -n \
+        --arg tag "$TAG" \
+        --arg name "$TAG" \
+        --arg body "$BODY" \
+        '{tag_name:$tag,name:$name,body:$body,draft:false,prerelease:false}')
+    REL_RESP=$(curl -sS -X POST \
+        -H "Authorization: token $FORGEJO_TOKEN" \
+        -H "Content-Type: application/json" \
+        -d "$REL_JSON" \
+        "$FORGEJO_BASE/api/v1/repos/$FORGEJO_REPO_PATH/releases")
+    REL_ID=$(echo "$REL_RESP" | jq -r '.id // empty')
+    if [[ -z "$REL_ID" ]]; then
+        echo "  ⚠ Forgejo release create failed: $REL_RESP"
+    else
+        echo "  release id: $REL_ID — uploading DMG"
+        curl -sS -X POST \
+            -H "Authorization: token $FORGEJO_TOKEN" \
+            -F "attachment=@$DMG" \
+            "$FORGEJO_BASE/api/v1/repos/$FORGEJO_REPO_PATH/releases/$REL_ID/assets?name=$DMG_NAME" \
+            > /dev/null
+        echo "  ✅ Forgejo: $FORGEJO_BASE/$FORGEJO_REPO_PATH/releases/tag/$TAG"
+    fi
 fi
 
 echo "✅ released $TAG → https://github.com/$GITHUB_REPO/releases/tag/$TAG"
