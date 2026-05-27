@@ -6,7 +6,7 @@ optionally-notarized flat installer that bundles everything the
 
 | Path | Mode | Source |
 |------|------|--------|
-| `/usr/local/bin/blueconnect-chat` | 0755 root:wheel | `.build/release/BlueConnectChat` |
+| `/usr/local/bin/blueconnect-chat` | 0755 root:wheel | universal binary (arm64 + x86_64) lipo'd from per-arch `swift build` outputs |
 | `/usr/local/bin/blueconnect-gui-helper` | 0755 root:wheel | `scripts/pkg/blueconnect-gui-helper` |
 | `/Library/LaunchAgents/xyz.hellocomputer.blueconnect-helper.plist` | 0644 root:wheel | `scripts/pkg/xyz.hellocomputer.blueconnect-helper.plist` |
 | `/Library/Application Support/BlueConnect/inbox` | 0777 | `postinstall` |
@@ -22,12 +22,25 @@ SSH access + a sudo prompt on each box. Munki distributes a `.pkg` to
 the whole fleet on its next sync. Use this for any fleet of more than
 ~3 Macs.
 
+## Architecture
+
+The `blueconnect-chat` binary in the pkg is a **universal** Mach-O
+(arm64 + x86_64) — same with the copy embedded in the app bundle by
+`build-app.sh`. Verify with `lipo -info /usr/local/bin/blueconnect-chat`.
+Works on both Apple Silicon and Intel fleet Macs without Rosetta.
+
+The `blueconnect-gui-helper` is a bash script — arch-independent.
+
 ## What's NOT in the pkg
 
-* **`largetype`** — third-party, unsigned, x86_64-only on Brandon's
-  system. Out of scope for redistribution. Document for fleet admins
-  to deploy separately if they want Large Type Quick Actions to work
-  on their endpoints.
+* **`largetype`** — third-party, unsigned, **x86_64 only** on
+  Brandon's dev box. On Apple Silicon fleet Macs it runs via
+  Rosetta if Rosetta is installed; otherwise the Large Type Quick
+  Action will fail. If your fleet needs first-class Large Type,
+  either deploy a universal-binary build of largetype separately
+  (its repo has the recipe) or ensure Rosetta is installed
+  fleet-wide via `softwareupdate --install-rosetta --agree-to-license`.
+  Out of scope for redistribution in this pkg either way.
 * **BlueConnect Admin.app** itself — the Mac app stays distributed
   via the GitHub Releases + Forgejo Releases path. The pkg only
   contains the on-target-Mac helper bits.

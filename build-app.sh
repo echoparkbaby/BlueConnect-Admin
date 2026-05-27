@@ -55,14 +55,22 @@ chmod +x "$APP_BUNDLE/Contents/MacOS/$EXEC_NAME"
 # /usr/local/bin/blueconnect-chat (a tiny SwiftUI window the GUI Helper
 # LaunchAgent launches in the console user's Aqua session).
 #
-# Single-arch (whatever Swift built for the host) is fine for now since
-# all fleet Macs we manage are Apple Silicon. If we later need Intel
-# coverage, the right move is two `swift build -c release` runs with
-# --arch arm64 and --arch x86_64 then `lipo -create` them.
-if [[ -f ".build/release/BlueConnectChat" ]]; then
-    cp ".build/release/BlueConnectChat" "$APP_BUNDLE/Contents/Resources/blueconnect-chat"
+# Universal binary so the app can SCP it to BOTH Apple Silicon and
+# Intel fleet Macs. SwiftPM doesn't have a one-shot universal flag —
+# build each arch separately then lipo. The pkg path
+# (scripts/build-helper-pkg.sh) does the same dual-arch dance for
+# the Munki-distributed copy.
+echo "▶ swift build --arch x86_64 (chat universal — already have arm64 from the main build)"
+swift build -c release --arch arm64  --product BlueConnectChat
+swift build -c release --arch x86_64 --product BlueConnectChat
+CHAT_ARM64="$(swift build -c release --arch arm64  --show-bin-path)/BlueConnectChat"
+CHAT_X86_64="$(swift build -c release --arch x86_64 --show-bin-path)/BlueConnectChat"
+if [[ -f "$CHAT_ARM64" && -f "$CHAT_X86_64" ]]; then
+    lipo -create "$CHAT_ARM64" "$CHAT_X86_64" \
+        -output "$APP_BUNDLE/Contents/Resources/blueconnect-chat"
     chmod +x "$APP_BUNDLE/Contents/Resources/blueconnect-chat"
-    echo "▶ embedded chat client at: $APP_BUNDLE/Contents/Resources/blueconnect-chat ($(du -h "$APP_BUNDLE/Contents/Resources/blueconnect-chat" | cut -f1))"
+    echo "▶ embedded chat client (universal): $APP_BUNDLE/Contents/Resources/blueconnect-chat ($(du -h "$APP_BUNDLE/Contents/Resources/blueconnect-chat" | cut -f1))"
+    echo "  $(lipo -info "$APP_BUNDLE/Contents/Resources/blueconnect-chat")"
 else
     echo "⚠️  chat client binary missing — chat feature will be unavailable"
 fi

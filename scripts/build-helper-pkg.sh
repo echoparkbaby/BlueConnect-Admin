@@ -59,14 +59,30 @@ mkdir -p "$ROOT/usr/local/bin"
 mkdir -p "$ROOT/Library/LaunchAgents"
 mkdir -p "$SCRIPTS"
 
-echo "▶ swift build -c release (BlueConnectChat)"
-swift build -c release --product BlueConnectChat
+# Universal-binary build: chat client runs on both Apple Silicon and
+# Intel fleet Macs. SwiftPM doesn't have a single-shot universal flag,
+# so we build each arch in its own .build subdir then `lipo` them into
+# one. The arm64-only build is what the host produces by default —
+# explicitly --arch'ing both ensures the output covers Intel even when
+# this script runs on an Apple Silicon machine.
+echo "▶ swift build -c release --arch arm64 (BlueConnectChat)"
+swift build -c release --arch arm64  --product BlueConnectChat
+ARM64_BIN="$(swift build -c release --arch arm64 --show-bin-path)/BlueConnectChat"
+
+echo "▶ swift build -c release --arch x86_64 (BlueConnectChat)"
+swift build -c release --arch x86_64 --product BlueConnectChat
+X86_64_BIN="$(swift build -c release --arch x86_64 --show-bin-path)/BlueConnectChat"
+
+UNIVERSAL_BIN="$STAGE/blueconnect-chat-universal"
+echo "▶ lipo -create $UNIVERSAL_BIN"
+lipo -create "$ARM64_BIN" "$X86_64_BIN" -output "$UNIVERSAL_BIN"
+echo "  $(lipo -info "$UNIVERSAL_BIN")"
 
 # Stage the three payload files. Permissions get a final pass via
 # pkgbuild --analyze/--component-plist, but installing them with the
 # right modes up-front keeps the staged tree audit-friendly.
 echo "▶ stage payload"
-install -m 755 .build/release/BlueConnectChat "$ROOT/usr/local/bin/blueconnect-chat"
+install -m 755 "$UNIVERSAL_BIN" "$ROOT/usr/local/bin/blueconnect-chat"
 install -m 755 scripts/pkg/blueconnect-gui-helper "$ROOT/usr/local/bin/blueconnect-gui-helper"
 install -m 644 scripts/pkg/xyz.hellocomputer.blueconnect-helper.plist \
     "$ROOT/Library/LaunchAgents/xyz.hellocomputer.blueconnect-helper.plist"
