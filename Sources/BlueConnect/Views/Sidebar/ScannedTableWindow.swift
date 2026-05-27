@@ -71,7 +71,7 @@ struct ScannedTableWindow: View {
                 hasVNC: svc.hasVNC,
                 sshSort: svc.hasSSH ? 1 : 0,
                 vncSort: svc.hasVNC ? 1 : 0,
-                typeLabel: unifi?.type.map { $0.capitalized } ?? "",
+                typeLabel: unifi?.type.map { Self.displayType($0) } ?? "",
                 isWired: unifi?.isWired ?? false,
                 speedMbps: unifi?.txRateMbps ?? unifi?.rxRateMbps ?? 0,
                 mac: unifi?.macAddress ?? "",
@@ -254,8 +254,14 @@ struct ScannedTableWindow: View {
             .customizationID("vnc")
             TableColumn("Type", value: \.typeLabel) { (r: Row) in
                 if !r.typeLabel.isEmpty {
-                    HStack(spacing: 3) {
+                    // Both image and text share the same .system(size:)
+                    // so the SF Symbol resolves to a font-metric baseline
+                    // that aligns with the text — previously the icon
+                    // defaulted to the row's intrinsic font and sat off
+                    // the text's optical baseline.
+                    HStack(spacing: 4) {
                         Image(systemName: r.isWired ? "cable.connector" : "wifi")
+                            .font(.system(size: smallSize))
                             .foregroundStyle(r.isWired ? .green : .blue)
                         Text(r.typeLabel).font(.system(size: smallSize))
                     }
@@ -263,7 +269,7 @@ struct ScannedTableWindow: View {
                     Text("—").foregroundStyle(.tertiary).font(.system(size: smallSize))
                 }
             }
-            .width(min: 70, ideal: 75, max: 95)
+            .width(min: 70, ideal: 80, max: 110)
             .customizationID("type")
             TableColumn("Speed", value: \.speedMbps) { (r: Row) in
                 if let display = scanner.unifiByIP[r.ip]?.displaySpeed {
@@ -307,6 +313,14 @@ struct ScannedTableWindow: View {
                 }
             }
         }
+        // Force SwiftUI to rebuild the entire Table identity whenever
+        // the font scale changes. Without this, the AppKit-backed
+        // NSTableView reuses already-rendered cells and the new
+        // smallSize/rowSize/ipSize values don't take effect until
+        // the user scrolls and the cells get recycled. .id(...)
+        // tied to an Int-scaled-by-100 of fontScale flips on each
+        // ⌘+ / ⌘- press, which triggers a full reload of every row.
+        .id("scan-table-\(Int(fontScale * 100))")
     }
 
     private func copy(_ s: String) {
@@ -372,6 +386,20 @@ struct ScannedTableWindow: View {
         let parts = ip.split(separator: ".").compactMap { UInt32($0) }
         guard parts.count == 4 else { return 0 }
         return (parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3]
+    }
+
+    /// UniFi `type` field renderer. Short all-letter codes (`uap`,
+    /// `udm`, `usw`, `ugw`, …) are device-class acronyms that read
+    /// best in ALL CAPS — UniFi's own UI shows them that way. Longer
+    /// values like "wired" / "wireless" / "user" are common English
+    /// words; first-letter capitalization is right for them. The
+    /// length cutoff (≤4) is a pragmatic line between the two cases.
+    private static func displayType(_ raw: String) -> String {
+        let t = raw.trimmingCharacters(in: .whitespaces)
+        if t.count <= 4 && t.allSatisfy({ $0.isLetter }) {
+            return t.uppercased()
+        }
+        return t.capitalized
     }
 }
 
