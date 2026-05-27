@@ -106,14 +106,16 @@ struct TerminalSettingsPane: View {
         }
     }
 
-    /// Build the picker's list by walking every installed font family
-    /// via `NSFontManager`. Filters out families whose first member
-    /// isn't fixed-pitch unless `includeProportional` is on. Always
-    /// pins "System Monospace" as the first entry so a user with no
-    /// custom monospaced fonts still has a valid choice.
-    private static func loadInstalledFonts(includeProportional: Bool) -> [FontOption] {
+    /// Cached scan of every installed font family. The NSFontManager
+    /// walk + per-family NSFont allocation is O(~800) on a typical
+    /// designer Mac; without the cache, every Settings → Terminal open
+    /// and every "Show non-monospaced fonts" toggle re-paid the full
+    /// cost. The cache is process-lifetime because users don't install
+    /// fonts while BlueConnect is running — a "Refresh fonts" button
+    /// in Settings is overkill for an edge case nobody has hit.
+    private static let allInstalledFontsCache: [(post: String, label: String, fixedPitch: Bool)] = {
         let manager = NSFontManager.shared
-        var out: [FontOption] = [FontOption(post: "", label: "System Monospace")]
+        var out: [(post: String, label: String, fixedPitch: Bool)] = []
         for family in manager.availableFontFamilies.sorted(by: { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }) {
             // Skip the system "." families — these are private faces
             // (SF Symbols etc.) that aren't valid for general text.
@@ -125,8 +127,19 @@ struct TerminalSettingsPane: View {
                   let post = first[0] as? String,
                   let probe = NSFont(name: post, size: 12)
             else { continue }
-            if !includeProportional && !probe.isFixedPitch { continue }
-            out.append(FontOption(post: post, label: family))
+            out.append((post: post, label: family, fixedPitch: probe.isFixedPitch))
+        }
+        return out
+    }()
+
+    /// Filter the cached scan to what the picker should show now.
+    /// "System Monospace" is always pinned to the top so a user with
+    /// no custom monospaced fonts still has a valid choice.
+    private static func loadInstalledFonts(includeProportional: Bool) -> [FontOption] {
+        var out: [FontOption] = [FontOption(post: "", label: "System Monospace")]
+        for entry in allInstalledFontsCache {
+            if !includeProportional && !entry.fixedPitch { continue }
+            out.append(FontOption(post: entry.post, label: entry.label))
         }
         return out
     }
