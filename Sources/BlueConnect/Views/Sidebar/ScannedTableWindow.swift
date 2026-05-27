@@ -238,7 +238,11 @@ struct ScannedTableWindow: View {
                 // row, and the previous .caption made it cramped.
                 Text(r.ip).font(.system(size: ipSize, design: .monospaced))
             }
-            .width(min: 110, ideal: 130, max: 160)
+            // 110pt ideal fits a 15-char IPv4 ("192.168.100.200") at
+            // 12pt monospaced with a little breathing room. The min
+            // is set low so operators can drag-shrink the column for
+            // 10.0.0.x setups where the IPs are shorter.
+            .width(min: 70, ideal: 110, max: 140)
             .customizationID("ip")
             TableColumn("SSH", value: \.sshSort) { (r: Row) in
                 Image(systemName: r.hasSSH ? "checkmark.circle.fill" : "xmark.circle")
@@ -263,7 +267,15 @@ struct ScannedTableWindow: View {
                     // x-height). Baseline alignment is the canonical
                     // SwiftUI pattern for icon+text rows.
                     HStack(alignment: .firstTextBaseline, spacing: 4) {
-                        Image(systemName: r.isWired ? "cable.connector" : "wifi")
+                        // Swapped from cable.connector + wifi to icons
+                        // with more centered visual weight along their
+                        // baselines:
+                        //   - network: globe-with-lines, Apple's stock
+                        //     wired-connection symbol in System Settings
+                        //   - dot.radiowaves.left.and.right: balanced
+                        //     wave pattern that sits cleanly on the
+                        //     baseline instead of floating high.
+                        Image(systemName: r.isWired ? "network" : "dot.radiowaves.left.and.right")
                             .font(.system(size: smallSize))
                             .foregroundStyle(r.isWired ? .green : .blue)
                         Text(r.typeLabel).font(.system(size: smallSize))
