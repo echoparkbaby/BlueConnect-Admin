@@ -925,8 +925,8 @@ extension QuickAction {
 
             **TWO ways to install:**
 
-            1. Install pkg file **BlueConnectHelper.pkg** via Munki. Signed / Notarized: [BlueConnectHelper.pkg](https://github.com/echoparkbaby/BlueConnect-Admin/releases/latest/download/BlueConnectHelper.pkg).
-            2. Run this Quick Action per machine. It opens a terminal tab, prompts you once for sudo, installs the files, and loads the agent for the current console user.
+            1. Install [BlueConnectHelper.pkg](https://github.com/echoparkbaby/BlueConnect-Admin/releases/latest/download/BlueConnectHelper.pkg) (signed/notarized).
+            2. Run this Quick Action. It prompts once for sudo, installs the files, and loads the agent for the current console user.
 
             **Files installed:**
 
@@ -1250,7 +1250,7 @@ extension QuickAction {
 
             **Requires either:**
 
-            1. Run **Setup: Install GUI Helper** Quick Action.
+            1. Install **"Setup: Install GUI Helper"** Quick Action.
             2. **BlueConnectHelper.pkg.** Signed/Notarized: [BlueConnectHelper.pkg](https://github.com/echoparkbaby/BlueConnect-Admin/releases/latest/download/BlueConnectHelper.pkg).
             """,
             buildCommand: { v in
