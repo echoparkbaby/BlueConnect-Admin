@@ -61,6 +61,11 @@ struct QuickActionSheet: View {
                                 scope: values["scope"] ?? "all")
                     .padding(.horizontal, 16).padding(.vertical, 10)
             }
+            // Collapsed-by-default helper-install reminder for Large
+            // Type / Notify User. Slotted below the form (so the
+            // parameter inputs stay above the fold) and above the
+            // command preview.
+            helperHintDisclosure
             Divider()
             preview
             Divider()
@@ -135,11 +140,19 @@ struct QuickActionSheet: View {
             if let cmd = action.copyableCommand, !cmd.isEmpty {
                 copyableCommandBlock(cmd)
             }
-            // Sheets for actions that dispatch through the GUI Helper
-            // LaunchAgent get a banner reminding the user to run the
-            // one-time setup first. Failing silently in the terminal
-            // tab after submit is a worse UX than a proactive hint.
-            if Self.needsGuiHelperHint(actionID: action.id) {
+        }
+        .padding(.horizontal, 16).padding(.vertical, 12)
+    }
+
+    /// Tucked under a collapsed DisclosureGroup below the parameter
+    /// form. Used by Large Type / Notify User to surface the helper
+    /// install paths without taking up sheet real estate by default.
+    /// Closed-by-default because the operator usually has the helper
+    /// installed already and doesn't need to read it every time.
+    @ViewBuilder
+    private var helperHintDisclosure: some View {
+        if Self.needsGuiHelperHint(actionID: action.id) {
+            DisclosureGroup {
                 HStack(alignment: .top, spacing: 6) {
                     Image(systemName: "wand.and.rays")
                         .foregroundStyle(.orange)
@@ -152,9 +165,13 @@ struct QuickActionSheet: View {
                 .padding(8)
                 .background(Color.orange.opacity(0.08))
                 .clipShape(RoundedRectangle(cornerRadius: 6))
+            } label: {
+                Label("Helper install details", systemImage: "wand.and.rays")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
+            .padding(.horizontal, 16).padding(.vertical, 8)
         }
-        .padding(.horizontal, 16).padding(.vertical, 12)
     }
 
     /// Set of action IDs whose runtime dispatch goes through the GUI
@@ -179,8 +196,6 @@ struct QuickActionSheet: View {
     private func copyableCommandBlock(_ cmd: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Text("Copy this command to run elsewhere:")
-                    .font(.caption2).foregroundStyle(.secondary)
                 Spacer()
                 Button {
                     NSPasteboard.general.clearContents()
