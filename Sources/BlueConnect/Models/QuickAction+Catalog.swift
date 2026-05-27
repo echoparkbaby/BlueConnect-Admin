@@ -1245,14 +1245,7 @@ extension QuickAction {
                       ]), defaultValue: "5"),
             ],
             tabLabel: "largetype", isDestructive: false,
-            help: """
-            Displays a full-screen text message in front of the user via [largetype](https://github.com/abdusco/largetype).
-
-            **Requires either:**
-
-            1. **Quick Action** — "Setup: Install GUI Helper"
-            2. **Package Install** — [BlueConnectHelper.pkg](https://github.com/echoparkbaby/BlueConnect-Admin/releases/latest/download/BlueConnectHelper.pkg)
-            """,
+            help: "Displays a full-screen text message in front of the user via [largetype](https://github.com/abdusco/largetype).",
             buildCommand: { v in
                 let msg = shq(v["msg"] ?? "")
                 let color   = (v["color"]   ?? "").trimmingCharacters(in: .whitespaces)

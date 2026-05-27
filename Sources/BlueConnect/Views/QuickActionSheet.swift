@@ -153,16 +153,19 @@ struct QuickActionSheet: View {
     private var helperHintDisclosure: some View {
         if Self.needsGuiHelperHint(actionID: action.id) {
             DisclosureGroup {
-                HStack(alignment: .top, spacing: 6) {
-                    Image(systemName: "wand.and.rays")
-                        .foregroundStyle(.orange)
-                    Text(.init("Requires the **BlueConnect Helper** on the target Mac. Per-host: run **Setup: Install GUI Helper (one-time)** from Miscellaneous. Fleet-scale: deploy [BlueConnectHelper.pkg](https://github.com/echoparkbaby/BlueConnect-Admin/releases/latest/download/BlueConnectHelper.pkg) via Munki."))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .textSelection(.enabled)
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(alignment: .top, spacing: 6) {
+                        Image(systemName: "wand.and.rays")
+                            .foregroundStyle(.orange)
+                        Text(.init("**Requires either:**\n\n1. **Quick Action** — \"Setup: Install GUI Helper\"\n2. **Package Install** — [BlueConnectHelper.pkg](https://github.com/echoparkbaby/BlueConnect-Admin/releases/latest/download/BlueConnectHelper.pkg)"))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .textSelection(.enabled)
+                    }
                 }
                 .padding(8)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .background(Color.orange.opacity(0.08))
                 .clipShape(RoundedRectangle(cornerRadius: 6))
             } label: {
