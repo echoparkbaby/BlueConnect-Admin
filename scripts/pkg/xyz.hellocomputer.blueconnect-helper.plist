@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>xyz.hellocomputer.blueconnect-helper</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/blueconnect-gui-helper</string>
+    </array>
+    <key>WatchPaths</key>
+    <array>
+        <string>/Library/Application Support/BlueConnect/inbox</string>
+    </array>
+    <key>LimitLoadToSessionType</key>
+    <string>Aqua</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/blueconnect-helper.err.log</string>
+    <!-- Critical for our spawn-and-exit model: by default launchd
+         nukes every process in the job's process group when the job
+         exits. We spawn long-running GUI children (largetype,
+         blueconnect-chat) and need them to outlive the helper's
+         brief inbox-walk. true here tells launchd to leave them
+         alone. -->
+    <key>AbandonProcessGroup</key>
+    <true/>
+</dict>
+</plist>

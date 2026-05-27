@@ -14,3 +14,6 @@ HANDOFF.md
 catalog.*.json
 .claude/
 CLAUDE.md
+
+# Helper pkg build artifact (signed/notarized .pkg uploaded to Munki)
+BlueConnectHelper.pkg

@@ -1,0 +1,56 @@
+#!/bin/bash
+# postinstall — runs as root AFTER the payload has landed at
+# /usr/local/bin/blueconnect-{chat,gui-helper} and
+# /Library/LaunchAgents/xyz.hellocomputer.blueconnect-helper.plist.
+#
+# Creates the world-writable inbox + chat-sessions directories
+# (BlueConnect Admin drops job files there from any admin user;
+# the helper picks them up out of its Aqua session). Then bootstraps
+# the LaunchAgent into every active GUI session so the helper is
+# immediately live without a logout/login cycle.
+set -e
+
+APP_SUPPORT="/Library/Application Support/BlueConnect"
+PLIST="/Library/LaunchAgents/xyz.hellocomputer.blueconnect-helper.plist"
+
+# World-writable directories — admin users dropping job files come
+# from arbitrary uids (anyone in the `admin` group). The helper's
+# owner check inside the script is the security boundary, not POSIX
+# perms on this dir.
+mkdir -p "$APP_SUPPORT/inbox"
+chmod 0777 "$APP_SUPPORT/inbox"
+mkdir -p "$APP_SUPPORT/chat/sessions"
+chmod 0777 "$APP_SUPPORT/chat"
+chmod 0777 "$APP_SUPPORT/chat/sessions"
+
+# Bootstrap the LaunchAgent into every active Aqua session. Fast User
+# Switching means multiple users may be logged in simultaneously;
+# each one gets their own helper instance. Skip root and any user
+# whose `gui/<uid>` domain isn't accepting bootstraps (rare —
+# usually means the session is being torn down).
+LOADED=""
+SKIPPED=""
+for u in $(/usr/bin/who | /usr/bin/awk '{print $1}' | /usr/bin/sort -u); do
+    [ "$u" = "root" ] && continue
+    uid=$(id -u "$u" 2>/dev/null) || continue
+    [ -z "$uid" ] && continue
+    # Belt-and-suspenders bootout in case preinstall missed it —
+    # bootstrap fails if the agent is already loaded.
+    /bin/launchctl bootout "gui/$uid" "$PLIST" 2>/dev/null || true
+    if /bin/launchctl bootstrap "gui/$uid" "$PLIST" 2>/dev/null; then
+        LOADED="$LOADED $u"
+    else
+        SKIPPED="$SKIPPED $u"
+    fi
+done
+
+LOG="/var/log/install.log"
+echo "$(date '+%F %T') BlueConnect helper installed.${LOADED:+ Loaded for:$LOADED}${SKIPPED:+ Skipped:$SKIPPED}" >> "$LOG" 2>/dev/null || true
+
+# Strip any quarantine attr that may have come along on the chat
+# binary if the pkg was downloaded over a browser — without this,
+# Gatekeeper can refuse to launch it the first time the helper tries.
+xattr -dr com.apple.quarantine /usr/local/bin/blueconnect-chat 2>/dev/null || true
+xattr -dr com.apple.quarantine /usr/local/bin/blueconnect-gui-helper 2>/dev/null || true
+
+exit 0

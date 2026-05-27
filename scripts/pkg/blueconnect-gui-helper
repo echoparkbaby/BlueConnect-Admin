@@ -1,0 +1,62 @@
+#!/bin/bash
+# blueconnect-gui-helper — runs in the Aqua session of the logged-in
+# GUI user (loaded by /Library/LaunchAgents/xyz.hellocomputer.blueconnect-helper.plist).
+# Watches /Library/Application Support/BlueConnect/inbox via WatchPaths in the
+# plist; on each fire, walks every *.job file there, hands its contents to
+# /bin/sh ONLY if it matches the allowlisted prefixes, and deletes the file.
+# Anything else is logged and dropped.
+#
+# Allowlist is the security boundary: even if a local user gets a job file
+# into the world-writable inbox, they can only invoke commands BlueConnect
+# already supports. No arbitrary shell.
+INBOX="/Library/Application Support/BlueConnect/inbox"
+LOG="$HOME/Library/Logs/blueconnect-helper.log"
+mkdir -p "$(dirname "$LOG")"
+for job in "$INBOX"/*.job; do
+  [ -e "$job" ] || continue
+  # Filename-based target-user routing. Filenames like
+  # `notify-<uuid>.for-jennifer.job` are only processed by jennifer's
+  # helper; everyone else's helper sees the suffix, skips the file,
+  # leaves it for the correct user to grab. Unsuffixed filenames are
+  # untargeted (first-helper-wins, legacy behavior).
+  base=$(basename "$job")
+  case "$base" in
+    *.for-*.job)
+      target=$(echo "$base" | sed -n 's/.*\.for-\([^.]*\)\.job$/\1/p')
+      if [ -n "$target" ] && [ "$target" != "$USER" ]; then
+        continue
+      fi
+      ;;
+  esac
+  cmd=$(cat "$job")
+  # Owner check: only files dropped by an admin-group user (or root)
+  # are accepted. `stat -f%Su` returns the owner's short name;
+  # `id -Gn <name>` lists the owner's groups. macOS admin users are
+  # in `admin`.
+  owner=$(stat -f%Su "$job" 2>/dev/null)
+  rm -f "$job"
+  if [ -z "$owner" ]; then
+    echo "$(date '+%F %T') [$USER] REJECTED (no owner)" >> "$LOG"
+    continue
+  fi
+  if [ "$owner" != "root" ] && ! id -Gn "$owner" 2>/dev/null | tr ' ' '\n' | grep -qx admin; then
+    echo "$(date '+%F %T') [$USER] REJECTED non-admin owner '$owner': $cmd" >> "$LOG"
+    continue
+  fi
+  case "$cmd" in
+    /usr/local/bin/largetype\ *|\
+    /usr/local/bin/blueconnect-chat\ *|\
+    osascript\ -e\ *)
+      echo "$(date '+%F %T') [$USER] ALLOW [$owner]: $cmd" >> "$LOG"
+      # Background the GUI command and disown so the helper can keep
+      # processing the queue without waiting for the user to close a
+      # chat window (which would block largetype/notify jobs behind
+      # it). nohup prevents launchd from killing the child when this
+      # helper exits.
+      nohup /bin/sh -c "$cmd" </dev/null >> "$LOG" 2>&1 &
+      ;;
+    *)
+      echo "$(date '+%F %T') [$USER] REJECTED (not allowlisted) [$owner]: $cmd" >> "$LOG"
+      ;;
+  esac
+done

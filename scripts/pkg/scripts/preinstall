@@ -1,0 +1,25 @@
+#!/bin/bash
+# preinstall — runs as root BEFORE the new payload is copied in.
+# Boots out any existing LaunchAgent from every active Aqua session so
+# the freshly-installed plist can be loaded cleanly in the postinstall
+# step. Idempotent — no error if nothing is loaded.
+set -e
+
+PLIST="/Library/LaunchAgents/xyz.hellocomputer.blueconnect-helper.plist"
+
+# Only bother if there's an existing plist; first-time installs skip.
+if [ ! -f "$PLIST" ]; then
+    exit 0
+fi
+
+# Bootout from every active GUI session. `who` lists logged-in users;
+# Fast User Switching means several can be active at once. `gui/<uid>`
+# is the launchd domain for an Aqua session.
+for u in $(/usr/bin/who | /usr/bin/awk '{print $1}' | /usr/bin/sort -u); do
+    [ "$u" = "root" ] && continue
+    uid=$(id -u "$u" 2>/dev/null) || continue
+    [ -z "$uid" ] && continue
+    /bin/launchctl bootout "gui/$uid" "$PLIST" 2>/dev/null || true
+done
+
+exit 0
