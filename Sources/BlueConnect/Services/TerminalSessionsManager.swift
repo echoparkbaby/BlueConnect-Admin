@@ -32,6 +32,14 @@ final class TerminalSessionsManager {
 
     var hasContent: Bool { !sessions.isEmpty || !tunnels.isEmpty }
 
+    /// Push the operator's current Terminal preferences into every
+    /// live session's SwiftTerm view. Settings observers call this
+    /// when any `terminal*` AppStorage value changes — without it
+    /// already-open tabs keep the old theme until they're closed.
+    func reapplyAppearanceToAllSessions() {
+        for s in sessions { s.reapplyAppearance() }
+    }
+
     var activeSessionID: UUID? {
         get {
             if case .session(let id) = activeSelection { return id }

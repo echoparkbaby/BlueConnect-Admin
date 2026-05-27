@@ -70,6 +70,26 @@ final class SettingsStore: ObservableObject {
     @AppStorage("hideInactive") var hideInactive: Bool = false  // "Active only" filter
     @AppStorage("showOnlyInactive") var showOnlyInactive: Bool = false  // "Inactive only" filter
 
+    // Terminal appearance — SwiftTerm view font + colors. Colors are
+    // persisted as RGB hex strings ("#RRGGBB") so they round-trip
+    // through @AppStorage's String storage cleanly. The TerminalSession
+    // applies these to its LocalProcessTerminalView on init and
+    // re-applies them when the user changes them in Settings.
+    /// PostScript font name (e.g. "Inconsolata-Regular", "Menlo-Regular").
+    /// Empty string → fall back to `NSFont.monospacedSystemFont`. We resolve
+    /// at render time so an uninstalled font name silently degrades to the
+    /// system mono face instead of crashing.
+    // Defaults match the Peppermint preset (near-black background,
+    // bright green text, red cursor, Inconsolata 14pt). The green is
+    // readable across all four built-in presets (red / bright blue /
+    // navy / black backgrounds) so a fresh install or "Reset" lands
+    // somewhere usable on every theme.
+    @AppStorage("terminalFontName")      var terminalFontName: String = "Inconsolata-Regular"
+    @AppStorage("terminalFontSize")      var terminalFontSize: Double = 14.0
+    @AppStorage("terminalForegroundHex") var terminalForegroundHex: String = "#50FA7B"
+    @AppStorage("terminalBackgroundHex") var terminalBackgroundHex: String = "#0F0F0F"
+    @AppStorage("terminalCursorHex")     var terminalCursorHex: String = "#FF2734"
+
     // Column visibility
     @AppStorage("colShowFavorite") var colShowFavorite: Bool = true
     @AppStorage("colShowActive") var colShowActive: Bool = true

@@ -21,6 +21,11 @@ fi
 APP_NAME="${APP_NAME:-BlueConnect Admin}"
 EXEC_NAME="${EXEC_NAME:-BlueConnectAdmin}"
 BUNDLE_ID="${BUNDLE_ID:-com.example.BlueConnectAdmin}"
+# Default VERSION to whatever the most recent git tag claims — that's
+# almost always what a dev build should report. release.sh exports a
+# pinned VERSION before invoking us, so its path is unaffected. Falls
+# back to 1.0.0 only when there are no tags at all (fresh repo).
+VERSION="${VERSION:-$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || true)}"
 VERSION="${VERSION:-1.0.0}"
 # .env-sign's BUILD_NUMBER is a starting hint, not a pin. If the env-sign
 # value is what we just read (no caller override), bump to a fresh

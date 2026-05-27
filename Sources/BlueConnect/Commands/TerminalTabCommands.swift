@@ -9,8 +9,21 @@ import SwiftUI
 /// environment) can perform the actual window open.
 struct TerminalTabCommands: Commands {
     @Bindable var terminals: TerminalSessionsManager
+    @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
+        // ⌘⇧I → Terminal Profile picker. A separate CommandMenu
+        // ("Terminal") keeps profile management visually distinct
+        // from the per-tab nav controls in the "Tabs" menu below,
+        // while still living in this file so we don't consume an
+        // extra slot in BlueConnectApp's @CommandsBuilder (which
+        // caps at 10).
+        CommandMenu("Terminal") {
+            Button("Profile Picker…") {
+                openWindow(id: "terminal-profiles")
+            }
+            .keyboardShortcut("i", modifiers: [.command, .shift])
+        }
         CommandMenu("Tabs") {
             // ⌘⇧] / ⌘⇧[ — matches Terminal.app / Safari conventions for
             // next/previous tab. (Original choice of ⌘] / ⌘[ collided with
@@ -28,7 +41,21 @@ struct TerminalTabCommands: Commands {
             Button("Detach Tab to Window") {
                 NotificationCenter.default.post(name: .bcDetachActiveTerminal, object: nil)
             }
-            .keyboardShortcut("d", modifiers: [.command, .shift])
+            // ⌘F = "break out current terminal" — pops the active tab
+            // into its own floating window. The old ⌘⇧D binding is
+            // kept as an alternate so muscle memory still works.
+            .keyboardShortcut("f", modifiers: [.command])
+            .disabled(terminals.activeSessionID == nil)
+
+            Button("Detach + Full Screen") {
+                NotificationCenter.default.post(
+                    name: .bcDetachActiveTerminalFullScreen, object: nil
+                )
+            }
+            // ⌘⇧F = "detach and take it full screen" — same path as
+            // ⌘F but ContentView's listener also toggles the new
+            // window's fullScreen mode after open.
+            .keyboardShortcut("f", modifiers: [.command, .shift])
             .disabled(terminals.activeSessionID == nil)
 
             Button("Kill All Tunnels") { terminals.killAllTunnels() }
@@ -61,8 +88,16 @@ struct TerminalTabCommands: Commands {
 }
 
 extension Notification.Name {
-    /// Posted by TerminalTabCommands when the user invokes ⌘⇧D. ContentView
-    /// observes and calls openWindow(id: "detached-terminal", value:) — Commands
-    /// can't access the openWindow environment value directly.
+    /// Posted by TerminalTabCommands when the user invokes ⌘F (or
+    /// the older ⌘⇧D). ContentView observes and calls
+    /// openWindow(id: "detached-terminal", value:) — Commands can't
+    /// access the openWindow environment value directly.
     static let bcDetachActiveTerminal = Notification.Name("BC.DetachActiveTerminal")
+
+    /// ⌘⇧F variant — same detach path, but ContentView's listener
+    /// also calls `toggleFullScreen` on the freshly-opened window
+    /// once SwiftUI has finished hosting it. Posted as a separate
+    /// notification so the open + full-screen pair can be observed
+    /// in one place.
+    static let bcDetachActiveTerminalFullScreen = Notification.Name("BC.DetachActiveTerminalFullScreen")
 }

@@ -14,7 +14,10 @@ struct FocusMenubarCommand: Commands {
     var body: some Commands {
         CommandGroup(after: .windowList) {
             Button("Focus Menubar Search") { Self.openMenubar() }
-                .keyboardShortcut("f", modifiers: [.command, .shift])
+                // ⌘⇧F was reassigned to "Detach + Full Screen" for the
+                // terminal; menubar focus moved to ⌃⌘F. Same letter,
+                // different modifier — same discoverability via menu.
+                .keyboardShortcut("f", modifiers: [.command, .control])
         }
     }
 

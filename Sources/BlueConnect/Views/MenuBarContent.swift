@@ -46,12 +46,50 @@ struct MenuBarContent: View {
         if menubarActiveOnly { l = l.filter { $0.active } }
         if menubarFavoritesOnly { l = l.filter { $0.isFavorite } }
         guard !query.isEmpty else { return l }
-        return l.filter {
-            $0.displayName.localizedStandardContains(query)
-                || String($0.blueskyid).contains(query)
-                || ($0.sharingname?.localizedStandardContains(query) ?? false)
-                || ($0.category?.localizedStandardContains(query) ?? false)
+        return l.filter { matchesQuery($0) }
+    }
+
+    /// Shared query predicate so the "Search Results" section + the
+    /// Return-key launch use the same matching logic. Without this the
+    /// menu's favs/recents-only sections silently hid hosts the user
+    /// could see in the main window, and Return fell through to the
+    /// last-connected host because no visible row matched.
+    private func matchesQuery(_ h: BlueSkyHost) -> Bool {
+        guard !query.isEmpty else { return true }
+        return h.displayName.localizedStandardContains(query)
+            || String(h.blueskyid).contains(query)
+            || (h.sharingname?.localizedStandardContains(query) ?? false)
+            || (h.category?.localizedStandardContains(query) ?? false)
+    }
+
+    /// Full-corpus search across `hostStore.hosts` (not just favs +
+    /// recents). Only used when the user has typed something — when
+    /// the query is empty we fall back to the curated favs/recents
+    /// sections.
+    private var searchHits: [BlueSkyHost] {
+        guard !query.isEmpty else { return [] }
+        return hostStore.hosts
+            .filter { matchesQuery($0) }
+            .filter { !menubarActiveOnly || $0.active }
+            .filter { !menubarFavoritesOnly || $0.isFavorite }
+            .sorted { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }
+    }
+
+    /// Pick the host a Return/V/S keypress should fire against. With
+    /// a non-empty query, prefer the first active search hit (so the
+    /// user can type then hit Return to launch the obvious result);
+    /// without a query, fall back to whatever the arrow keys / default
+    /// put in keyboardSelection. Returns nil for inactive hosts so the
+    /// keypress reports `.ignored` (matches the pre-fix semantics).
+    private func launchTargetForKeyboardShortcut() -> BlueSkyHost? {
+        if !query.isEmpty {
+            return searchHits.first(where: { $0.active })
         }
+        guard let id = keyboardSelection,
+              let h = hostStore.hosts.first(where: { $0.id == id }),
+              h.active
+        else { return nil }
+        return h
     }
 
     private var activeCount: Int { hostStore.hosts.filter { $0.active }.count }
@@ -79,25 +117,28 @@ struct MenuBarContent: View {
             await hostStore.refresh(settings: settings)
         }
         .onKeyPress(.return) {
-            if let id = keyboardSelection,
-               let h = hostStore.hosts.first(where: { $0.id == id }), h.active {
-                connect(h, .ssh)
+            // Return prefers the first search hit when the user is
+            // searching — otherwise it falls back to whichever host
+            // the arrow keys (or default) put in keyboardSelection.
+            // Previously this always used keyboardSelection, which
+            // defaulted to last-connected, so typing then hitting
+            // Return launched Connect-to-last regardless of query.
+            if let target = launchTargetForKeyboardShortcut() {
+                connect(target, .ssh)
                 return .handled
             }
             return .ignored
         }
         .onKeyPress(.init("v")) {
-            if let id = keyboardSelection,
-               let h = hostStore.hosts.first(where: { $0.id == id }), h.active {
-                connect(h, .vnc)
+            if let target = launchTargetForKeyboardShortcut() {
+                connect(target, .vnc)
                 return .handled
             }
             return .ignored
         }
         .onKeyPress(.init("s")) {
-            if let id = keyboardSelection,
-               let h = hostStore.hosts.first(where: { $0.id == id }), h.active {
-                connect(h, .scp)
+            if let target = launchTargetForKeyboardShortcut() {
+                connect(target, .scp)
                 return .handled
             }
             return .ignored
@@ -354,11 +395,27 @@ struct MenuBarContent: View {
     private var sections: some View {
         let favs = filtered(favorites)
         let recent = filtered(recentlyConnected)
+        let hits = searchHits
 
-        if favs.isEmpty && recent.isEmpty && categories.categories.isEmpty {
-            Text(query.isEmpty
-                 ? "Star a host or connect to one to see it here."
-                 : "No matches.")
+        // When the user is actively searching, the curated favs/recents
+        // sections aren't enough — they don't include every host the
+        // user can SSH into. Promote a "Search Results" section at the
+        // top that runs against the full inventory; fall back to the
+        // original curated layout when the field is empty.
+        if !query.isEmpty {
+            if hits.isEmpty {
+                Text("No matches.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .padding(.horizontal, 14).padding(.vertical, 16)
+                    .frame(maxWidth: .infinity)
+            } else {
+                sectionHeader("Search Results", icon: "magnifyingglass", iconColor: .accentColor)
+                ForEach(hits) { h in
+                    HostRow(host: h, kbSelected: keyboardSelection == h.id)
+                }
+            }
+        } else if favs.isEmpty && recent.isEmpty && categories.categories.isEmpty {
+            Text("Star a host or connect to one to see it here.")
                 .font(.caption).foregroundStyle(.secondary)
                 .padding(.horizontal, 14).padding(.vertical, 16)
                 .frame(maxWidth: .infinity)
@@ -418,11 +475,12 @@ struct MenuBarContent: View {
                 if let win = NSApp.windows.first(where: { $0.title.contains("BlueConnect") }) {
                     win.makeKeyAndOrderFront(nil)
                 }
-                // ActivityLog sheet is owned by ContentView; surface it via
-                // an existing convention by writing a sentinel in the notifier
-                // is overkill — easier: just bring the main window up and
-                // let the user click the toolbar's Activity Log item.
-                // TODO: notification-driven open if this becomes a friction point.
+                // ContentView listens for this and flips its
+                // `showingActivityLog` state, opening the sheet. The
+                // sheet lives on the main window, so we order-front
+                // first to make sure the post lands on a visible
+                // window.
+                NotificationCenter.default.post(name: .blueConnectOpenActivityLog, object: nil)
             }
             FooterButton(label: "Settings…", icon: "gearshape") {
                 NSApp.activate(ignoringOtherApps: true)
@@ -459,5 +517,12 @@ struct MenuBarContent: View {
             openWindow(id: "scp-transfer")
         }
     }
+}
+
+extension Notification.Name {
+    /// Posted by the MenuBar Activity Log button. ContentView listens
+    /// and flips `showingActivityLog = true` so the sheet appears on
+    /// the (already-fronted) main window.
+    static let blueConnectOpenActivityLog = Notification.Name("BlueConnectOpenActivityLog")
 }
 

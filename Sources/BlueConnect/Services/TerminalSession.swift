@@ -24,6 +24,11 @@ final class TerminalSession: NSObject, Identifiable, LocalProcessTerminalViewDel
         self.blueskyid = blueskyid
         self.view = LocalProcessTerminalView(frame: NSRect(x: 0, y: 0, width: 800, height: 320))
         super.init()
+        // Pick up the operator's Terminal preferences (font size +
+        // background / foreground / cursor colors) before the first
+        // frame draws. Subsequent live changes are pushed in via
+        // `applyAppearance(...)` from `TerminalSessionsManager`.
+        Self.applyAppearance(to: view)
         if kind != .local {
             // The "what's about to run" preview gets fed to SwiftTerm
             // as a single big line. If args contain a base64-embedded
@@ -134,5 +139,54 @@ final class TerminalSession: NSObject, Identifiable, LocalProcessTerminalViewDel
             kill(pid, SIGTERM)
         }
         isRunning = false
+    }
+
+    /// Push the user's saved Terminal preferences into a SwiftTerm
+    /// view. Reads `terminalFontSize` + the three color hex strings
+    /// straight from UserDefaults (the same store `@AppStorage` writes
+    /// to) so this stays usable from a non-SwiftUI context — e.g. the
+    /// init path, where wiring up an `@AppStorage` would require
+    /// turning the type into a `View`.
+    static func applyAppearance(to view: LocalProcessTerminalView) {
+        let d = UserDefaults.standard
+        let size = d.object(forKey: "terminalFontSize") as? Double ?? 12.0
+        // Pick a font face: empty name → system monospace; otherwise
+        // try to load the saved PostScript name and fall back to system
+        // monospace if it isn't installed (so an uninstalled face
+        // silently degrades instead of crashing).
+        let name = d.string(forKey: "terminalFontName") ?? ""
+        if !name.isEmpty, let custom = NSFont(name: name, size: CGFloat(size)) {
+            view.font = custom
+        } else {
+            view.font = NSFont.monospacedSystemFont(ofSize: CGFloat(size), weight: .regular)
+        }
+
+        if let bg = NSColor.fromHex(d.string(forKey: "terminalBackgroundHex") ?? "") {
+            view.nativeBackgroundColor = bg
+        }
+        if let fg = NSColor.fromHex(d.string(forKey: "terminalForegroundHex") ?? "") {
+            view.nativeForegroundColor = fg
+        }
+        if let cur = NSColor.fromHex(d.string(forKey: "terminalCursorHex") ?? "") {
+            view.caretColor = cur
+        }
+
+        // Custom 16-color ANSI palette. Stock xterm blue (#0225C7) and
+        // bright blue (#6871FF) are unreadable on the Peppermint-style
+        // dark backgrounds we ship as defaults — and operator shell
+        // prompts (PS1, starship, oh-my-zsh) routinely paint the hostname
+        // in ANSI blue. Remap ANSI 4 + 12 to white so that text reads
+        // clearly without the operator needing to touch their PS1.
+        view.installColors(BlueConnectAnsiPalette.colors)
+
+        view.needsDisplay = true
+    }
+
+    /// Re-apply appearance to this session's view. Called by
+    /// `TerminalSessionsManager` when the operator changes any
+    /// `terminal*` setting, so live sessions update without needing
+    /// to be closed + reopened.
+    func reapplyAppearance() {
+        Self.applyAppearance(to: view)
     }
 }

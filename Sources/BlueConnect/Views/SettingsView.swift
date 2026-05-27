@@ -12,7 +12,24 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
 
-    @State private var selection: Section = .blueConnect
+    // Persist the sidebar selection in @AppStorage so it survives
+    // window close/reopen — and, more importantly, so other views
+    // (e.g. the Terminal Profile picker's "Customize…" button) can
+    // write to the same key BEFORE calling `openSettings()` and have
+    // the Settings window come up on the right pane. With a plain
+    // `@State` we used to lose the post-via-NotificationCenter
+    // signal on first-open because the view wasn't yet in the
+    // hierarchy to receive it.
+    @AppStorage("settingsSelection") private var selectionRaw: String = Section.blueConnect.rawValue
+    private var selection: Section {
+        get { Section(rawValue: selectionRaw) ?? .blueConnect }
+    }
+    private var selectionBinding: Binding<Section> {
+        Binding(
+            get: { Section(rawValue: selectionRaw) ?? .blueConnect },
+            set: { selectionRaw = $0.rawValue }
+        )
+    }
 
     // Local string mirrors of the Tailscale port settings (String binding —
     // IntegerFormatStyle's locale grouping silently corrupts port input).
@@ -27,7 +44,7 @@ struct SettingsView: View {
         case blueConnect, security, discovery,
              tailscaleDefaults, packageRepo, eraseInstall,
              munkiRepo, munkiReport, unifi, quickActions,
-             notifications, about
+             terminal, notifications, about
 
         var id: String { rawValue }
         var label: String {
@@ -42,6 +59,7 @@ struct SettingsView: View {
             case .munkiReport:      return "MunkiReport"
             case .unifi:            return "Network"
             case .quickActions:     return "Quick Actions"
+            case .terminal:         return "Terminal"
             case .notifications:    return "Notifications"
             case .about:            return "About"
             }
@@ -58,6 +76,7 @@ struct SettingsView: View {
             case .munkiReport:      return "chart.bar.doc.horizontal"
             case .unifi:            return "network"
             case .quickActions:     return "bolt.fill"
+            case .terminal:         return "terminal"
             case .notifications:    return "bell"
             case .about:            return "info.circle"
             }
@@ -77,7 +96,7 @@ struct SettingsView: View {
 
     var body: some View {
         NavigationSplitView {
-            List(sortedSections, selection: $selection) { s in
+            List(sortedSections, selection: selectionBinding) { s in
                 Label(s.label, systemImage: s.icon).tag(s)
             }
             .listStyle(.sidebar)
@@ -101,6 +120,16 @@ struct SettingsView: View {
             tailscaleSSHPortText = String(settings.tailscaleSSHPort)
             tailscaleVNCPortText = String(settings.tailscaleVNCPort)
             ftpPortText = String(settings.packageRepoFTPPort)
+        }
+        // Jump the sidebar to the Terminal pane when the Profile
+        // Picker's "Customize…" button is pressed. The picker writes
+        // the `settingsSelection` AppStorage key BEFORE calling
+        // openSettings(), so the value is already in place by the
+        // time SettingsView appears — no notification timing race.
+        // This receiver remains as a belt-and-suspenders path for
+        // already-mounted SettingsViews.
+        .onReceive(NotificationCenter.default.publisher(for: .blueConnectOpenTerminalSettings)) { _ in
+            selectionRaw = Section.terminal.rawValue
         }
     }
 
@@ -137,6 +166,7 @@ struct SettingsView: View {
         case .munkiReport:      MunkiReportSettingsPane()
         case .unifi:            UniFiSettingsPane()
         case .quickActions:     quickActionsPane
+        case .terminal:         TerminalSettingsPane()
         case .notifications:    notificationsPane
         case .about:            aboutPane
         }

@@ -16,7 +16,9 @@ server/
 ├── bs_host_update.json.php
 ├── bs_categories.json.php
 └── migrations/
-    └── 2026-05-03-categories-sort-order.sql
+    ├── 2026-05-03-categories-sort-order.sql
+    ├── 2026-05-14-computers-blueconnect-columns.sql
+    └── 2026-05-27-blocked-serials.sql
 ```
 
 ## Endpoints
@@ -57,14 +59,20 @@ These scripts expect the following environment variables to be available to PHP:
 `bs_categories.json.php` includes an idempotent migration that creates the
 `bs_categories` table when needed and adds `sort_order` if it is missing.
 
-If you prefer to run the SQL manually instead of letting the endpoint perform
-the migration during a request, apply:
+The other migrations under `migrations/` add BlueConnect-specific columns
+on the stock BSC `computers` table, and the `blocked_serials` table +
+`bc_block_rogue_insert` trigger that `bs_host_action.json.php`'s "block"
+action relies on. Apply each in date order:
 
 ```text
 migrations/2026-05-03-categories-sort-order.sql
+migrations/2026-05-14-computers-blueconnect-columns.sql
+migrations/2026-05-27-blocked-serials.sql
 ```
 
-using your normal MySQL administration workflow.
+using your normal MySQL administration workflow. `bs_host_action.json.php`
+no longer auto-creates the `blocked_serials` table inline — it will return
+a 500 with a clear error message if the migration hasn't been applied.
 
 ## Authentication
 

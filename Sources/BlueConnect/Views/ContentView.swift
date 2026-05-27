@@ -79,7 +79,14 @@ struct ContentView: View {
     /// Persisted across launches so the user's preferred layout sticks.
     @AppStorage("sidebarVisible") private var sidebarVisible: Bool = true
     @AppStorage("connectPanelVisible") private var connectPanelVisible: Bool = true
-    @SceneStorage("hostsTableColumns") private var columnCustomization: TableColumnCustomization<BlueSkyHost>
+    // Persist the hosts-table column order + visibility across launches.
+    // Previously used `@SceneStorage`, which only writes back when the
+    // system has scene restoration enabled (off by default for users
+    // who untick "Close windows when quitting an app"). The
+    // `@AppStorage` + JSON round-trip matches ScannedTableWindow's
+    // approach and persists unconditionally.
+    @AppStorage("hostsTableColumnsJSON") private var hostsColumnsRaw: String = ""
+    @State private var columnCustomization: TableColumnCustomization<BlueSkyHost> = .init()
 
     private var sidebarFilter: SidebarFilter {
         get { decode(sidebarFilterRaw) }
@@ -170,9 +177,53 @@ struct ContentView: View {
                     openWindow(id: "detached-terminal", value: id)
                 }
             }
+            .onReceive(NotificationCenter.default.publisher(for: .bcDetachActiveTerminalFullScreen)) { _ in
+                // Detach + open the window, then toggle full-screen
+                // after SwiftUI has installed the NSWindow. The 0.15s
+                // delay is enough to give the WindowGroup machinery
+                // time to register the new window in `NSApp.windows`;
+                // any shorter and `toggleFullScreen` runs against a
+                // nil window and silently no-ops.
+                guard let id = terminals.detachActive() else { return }
+                openWindow(id: "detached-terminal", value: id)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    let title = "Terminal"
+                    if let win = NSApp.windows.last(where: { $0.title.hasPrefix(title) }) {
+                        win.toggleFullScreen(nil)
+                    }
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .blueConnectOpenActivityLog)) { _ in
+                showingActivityLog = true
+            }
             .onChange(of: hostStore.lastResponse) { _, newValue in handleResponseChange(newValue) }
             .onChange(of: settings.notifyOnStateChange) { _, newValue in
                 if newValue { notifier.requestAuthorizationIfNeeded() }
+            }
+            // Push terminal-appearance changes into every already-open
+            // session so the operator sees the result of a Settings
+            // tweak without having to close and reopen each tab.
+            .onChange(of: settings.terminalFontName)      { _, _ in terminals.reapplyAppearanceToAllSessions() }
+            .onChange(of: settings.terminalFontSize)      { _, _ in terminals.reapplyAppearanceToAllSessions() }
+            .onChange(of: settings.terminalForegroundHex) { _, _ in terminals.reapplyAppearanceToAllSessions() }
+            .onChange(of: settings.terminalBackgroundHex) { _, _ in terminals.reapplyAppearanceToAllSessions() }
+            .onChange(of: settings.terminalCursorHex)     { _, _ in terminals.reapplyAppearanceToAllSessions() }
+            // Hosts-table column persistence: load on first appear,
+            // save on every customization change. Matches the
+            // ScannedTableWindow pattern; replaces the old
+            // @SceneStorage which didn't reliably survive launches.
+            .onAppear {
+                if !hostsColumnsRaw.isEmpty,
+                   let data = hostsColumnsRaw.data(using: .utf8),
+                   let decoded = try? JSONDecoder().decode(TableColumnCustomization<BlueSkyHost>.self, from: data) {
+                    columnCustomization = decoded
+                }
+            }
+            .onChange(of: columnCustomization) { _, new in
+                if let data = try? JSONEncoder().encode(new),
+                   let s = String(data: data, encoding: .utf8) {
+                    hostsColumnsRaw = s
+                }
             }
             .onChange(of: hostStore.lastError) { _, newValue in handleLastErrorChange(newValue) }
             .focusedSceneValue(\.hostActions, currentHostActions)

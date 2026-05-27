@@ -108,45 +108,34 @@ if ($action === 'selfdestruct') {
 }
 
 // Block: add the host's serial to a server-side blocklist, then run the same
-// teardown as `delete`. Auto-creates the `blocked_serials` table and a
-// BEFORE INSERT trigger on `computers` so any future re-registration with the
-// same serial is rejected at the DB layer. Idempotent — running on an already-
-// blocked host just re-runs delete teardown.
+// teardown as `delete`. The `blocked_serials` table and `bc_block_rogue_insert`
+// trigger are created by migrations/2026-05-27-blocked-serials.sql — this
+// endpoint only checks they exist and surfaces a clear error if not. Idempotent
+// — running on an already-blocked host just re-runs delete teardown.
 if ($action === 'block') {
-    if (!$mysqli->query("CREATE TABLE IF NOT EXISTS blocked_serials (
-        serial VARCHAR(64) NOT NULL PRIMARY KEY,
-        added_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        blueskyid_at_block INT NULL,
-        note VARCHAR(255) NULL
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4")) {
-        bs_fail(500, 'create blocked_serials failed: ' . $mysqli->error);
+    // Verify the schema migration has been applied — earlier versions
+    // of this endpoint auto-created the table inline; we no longer do.
+    $tableCheck = $mysqli->query("SHOW TABLES LIKE 'blocked_serials'");
+    if (!$tableCheck || $tableCheck->num_rows === 0) {
+        bs_fail(500, 'blocked_serials table missing — apply migrations/2026-05-27-blocked-serials.sql on the BSC server');
     }
 
-    // Trigger drop + recreate. CREATE TRIGGER needs SUPER on some MySQL
-    // builds; if it fails the block still goes through and the cron
-    // sweeper handles future re-registrations. We surface the install
-    // status in the response so the caller (and admin log) knows
-    // which layer of defense is active.
-    $mysqli->query("DROP TRIGGER IF EXISTS bc_block_rogue_insert");
+    // Detect whether the BEFORE INSERT trigger is installed. The migration
+    // installs it, but CREATE TRIGGER needs SUPER on some MySQL builds and
+    // may have been skipped. We surface the install status in the response
+    // so the caller (and admin log) knows which layer of defense is active.
     $triggerInstalled  = false;
     $triggerInstallErr = null;
-    if (!$mysqli->query("
-        CREATE TRIGGER bc_block_rogue_insert
-        BEFORE INSERT ON computers
-        FOR EACH ROW
-        BEGIN
-            IF (NEW.serialnum IS NOT NULL
-                AND NEW.serialnum <> ''
-                AND EXISTS (SELECT 1 FROM blocked_serials WHERE serial = NEW.serialnum)
-            ) THEN
-                SIGNAL SQLSTATE '45000'
-                SET MESSAGE_TEXT = 'serial is on BlueConnect blocked_serials list';
-            END IF;
-        END
-    ")) {
-        $triggerInstallErr = $mysqli->error;
-    } else {
+    $trgRes = $mysqli->query(
+        "SELECT 1 FROM information_schema.TRIGGERS
+         WHERE TRIGGER_SCHEMA = DATABASE()
+           AND TRIGGER_NAME   = 'bc_block_rogue_insert'
+         LIMIT 1"
+    );
+    if ($trgRes && $trgRes->num_rows > 0) {
         $triggerInstalled = true;
+    } else {
+        $triggerInstallErr = 'trigger bc_block_rogue_insert not installed — re-run migrations/2026-05-27-blocked-serials.sql with a MySQL user that has SUPER, or rely on the cron sweeper';
     }
 
     // Look up the host's serial so we can store it in the blocklist.

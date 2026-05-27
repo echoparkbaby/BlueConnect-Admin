@@ -47,7 +47,11 @@ struct ConnectCommands: Commands {
                 .keyboardShortcut("r", modifiers: [.command])
 
             Button("Search Hosts") { actions?.focusSearch() }
-                .keyboardShortcut("f", modifiers: [.command])
+                // ⌘F is now Detach Active Terminal (per user request);
+                // moved Search Hosts to ⌥⌘F. macOS picks the menu item
+                // up automatically — no muscle-memory loss for users
+                // who already knew the shortcut, just an Option modifier.
+                .keyboardShortcut("f", modifiers: [.command, .option])
 
             Button("Toggle Favorite") { actions?.toggleFavorite() }
                 .keyboardShortcut("d", modifiers: [.command])

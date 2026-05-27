@@ -143,6 +143,18 @@ struct BlueConnectAdminApp: App {
                 .environmentObject(quickActionStore)
         }
 
+        // Floating ⌘⇧I picker for the four built-in Terminal presets
+        // (Red Dead, Open Water, Deep Sea, Peppermint) plus the
+        // generic High Contrast / Default catchalls. Mirrors Apple
+        // Terminal's "Profiles" feel without committing to the full
+        // Settings → Terminal pane every time.
+        Window("Terminal Profile", id: "terminal-profiles") {
+            TerminalProfilesPickerWindow()
+                .environmentObject(settings)
+        }
+        .windowResizability(.contentSize)
+        .defaultPosition(.center)
+
         // Standalone, draggable, non-modal window for SCP file transfers.
         // Opened via @Environment(\.openWindow) when ContentView fires off
         // a new transfer (drop on row, SCP icon click, or ⌘3).

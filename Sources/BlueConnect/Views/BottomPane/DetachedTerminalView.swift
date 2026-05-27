@@ -20,6 +20,22 @@ struct DetachedTerminalView: View {
                     Divider()
                     TerminalContainer(terminal: session.view).id(session.id)
                 }
+                // Hidden ⌘F shortcut so the same key that detaches
+                // from the main window re-attaches from this one.
+                // SwiftUI dispatches keyboardShortcut bindings on the
+                // key window first, so this button wins over the
+                // app-menu's "Detach Tab" when the detached window
+                // has focus.
+                .background(
+                    Button("Re-attach (⌘F)") {
+                        manager.reattach(sessionID)
+                        dismissWindow(id: "detached-terminal", value: sessionID)
+                    }
+                    .keyboardShortcut("f", modifiers: [.command])
+                    .opacity(0)
+                    .frame(width: 0, height: 0)
+                    .accessibilityHidden(true)
+                )
             } else {
                 // Session ended or was already re-attached — close ourselves.
                 Color.clear
