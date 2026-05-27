@@ -143,10 +143,11 @@ struct QuickActionSheet: View {
                 HStack(alignment: .top, spacing: 6) {
                     Image(systemName: "wand.and.rays")
                         .foregroundStyle(.orange)
-                    Text("Requires GUI Helper on the target Mac. Run **Setup: Install GUI Helper (one-time)** from Miscellaneous if not already installed.")
+                    Text(.init("Requires the **BlueConnect Helper** on the target Mac. Per-host: run **Setup: Install GUI Helper (one-time)** from Miscellaneous. Fleet-scale: deploy [BlueConnectHelper.pkg](https://github.com/echoparkbaby/BlueConnect-Admin/releases/latest/download/BlueConnectHelper.pkg) via Munki."))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
                 }
                 .padding(8)
                 .background(Color.orange.opacity(0.08))

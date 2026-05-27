@@ -823,14 +823,7 @@ extension QuickAction {
                       ]), defaultValue: ""),
             ],
             tabLabel: "notify", isDestructive: false,
-            help: """
-            Shows a macOS notification banner to whoever's at the screen. Smaller / less attention-grabbing than Large Type.
-
-            Requires the **BlueConnect Helper** on the target Mac. Two install paths:
-
-            - **Per-host:** run **Setup: Install GUI Helper (one-time)** from the Miscellaneous Quick Actions.
-            - **Fleet-scale** (recommended): deploy via Munki — [BlueConnectHelper.pkg](https://github.com/echoparkbaby/BlueConnect-Admin/releases/latest/download/BlueConnectHelper.pkg)
-            """,
+            help: "Shows a macOS notification banner to whoever's at the screen. Smaller / less attention-grabbing than Large Type. The BlueConnect Helper requirement is covered by the orange notice below.",
             buildCommand: { v in
                 // AppleScript string literal: double-quoted, with
                 // backslash + double-quote escaped. Single quotes are
@@ -1113,6 +1106,64 @@ extension QuickAction {
             }
         ),
 
+        // Setup: Uninstall — the inverse of setupGuiHelper. Removes
+        // the LaunchAgent (booting it out of every active Aqua
+        // session first), the helper script, the chat client, and
+        // the world-writable inbox + chat session dirs. Idempotent —
+        // running it on a Mac that doesn't have the helper just
+        // succeeds with no-ops. Pair this with the per-host install
+        // path for ad-hoc cleanup; for Munki-deployed installs the
+        // uninstall path is "remove from manifest" instead.
+        QuickAction(
+            id: "uninstallGuiHelper",
+            label: "Setup: Uninstall GUI Helper",
+            category: .miscellaneous, icon: "trash",
+            fields: [],
+            tabLabel: "uninstall-gui-helper", isDestructive: true,
+            help: """
+            Removes the GUI Helper from this Mac — undoes **Setup: Install GUI Helper (one-time)**. Large Type, Notify User, and Chat will stop working on this Mac until the helper is reinstalled.
+
+            **What gets removed:**
+
+            - `/usr/local/bin/blueconnect-gui-helper` — worker script
+            - `/usr/local/bin/blueconnect-chat` — chat client
+            - `/Library/LaunchAgents/xyz.hellocomputer.blueconnect-helper.plist` — LaunchAgent (booted out first)
+            - `/Library/Application Support/BlueConnect/` — inbox + chat sessions (full directory)
+
+            Safe to run on a Mac that doesn't have the helper installed — every step is idempotent. For Munki-deployed installs, prefer removing the pkg from the manifest so Munki manages the uninstall instead.
+            """,
+            buildCommand: { _ in
+                // Single SSH-friendly line so the BSC tunnel doesn't
+                // need to handle multi-line shell. `|| true` on each
+                // step so partial installs (only some files present)
+                // still complete instead of failing on the first
+                // missing path.
+                #"""
+                set -e; \
+                echo "▶ priming sudo (will prompt for password if not cached)…"; \
+                sudo -v; \
+                PLIST="/Library/LaunchAgents/xyz.hellocomputer.blueconnect-helper.plist"; \
+                if [ -f "$PLIST" ]; then \
+                  echo "▶ booting LaunchAgent out of every active Aqua session…"; \
+                  for u in $(/usr/bin/who | /usr/bin/awk '{print $1}' | /usr/bin/sort -u); do \
+                    [ "$u" = "root" ] && continue; \
+                    uid=$(id -u "$u" 2>/dev/null) || continue; \
+                    [ -z "$uid" ] && continue; \
+                    sudo launchctl bootout "gui/$uid" "$PLIST" 2>/dev/null || true; \
+                  done; \
+                else \
+                  echo "▶ no LaunchAgent plist found — skipping bootout"; \
+                fi; \
+                echo "▶ removing files (/usr/local/bin/blueconnect-{gui-helper,chat}, LaunchAgent plist, app-support dir)…"; \
+                sudo rm -f "$PLIST"; \
+                sudo rm -f /usr/local/bin/blueconnect-gui-helper; \
+                sudo rm -f /usr/local/bin/blueconnect-chat; \
+                sudo rm -rf "/Library/Application Support/BlueConnect"; \
+                echo "✅ GUI helper uninstalled from $(hostname)."
+                """#
+            }
+        ),
+
         QuickAction(
             id: "largeTypeShow", label: "Large Type",
             category: .miscellaneous, icon: "textformat.size",
@@ -1189,14 +1240,9 @@ extension QuickAction {
             ],
             tabLabel: "largetype", isDestructive: false,
             help: """
-            Throws a full-screen big-text message in front of the user via `largetype` (installed at `/usr/local/bin/largetype`). Defaults: white text on translucent black, Futura font, 5-second hide.
+            Throws a full-screen big-text message in front of the user via `largetype`. Defaults: white text on translucent black, Futura font, 5-second hide.
 
-            Requires the **BlueConnect Helper** on the target Mac. Two install paths:
-
-            - **Per-host:** run **Setup: Install GUI Helper (one-time)** from the Miscellaneous Quick Actions.
-            - **Fleet-scale** (recommended): deploy via Munki — [BlueConnectHelper.pkg](https://github.com/echoparkbaby/BlueConnect-Admin/releases/latest/download/BlueConnectHelper.pkg)
-
-            **Note:** `largetype` itself is third-party and is **not** bundled in the pkg. It needs to exist at `/usr/local/bin/largetype` on the target Mac (deploy separately via Munki or your existing fleet-management tool).
+            `largetype` is a third-party binary you deploy separately to `/usr/local/bin/largetype` — source: [largetype on Homebrew](https://formulae.brew.sh/formula/largetype) (`brew install largetype`). The BlueConnect Helper itself is covered by the orange notice below.
             """,
             buildCommand: { v in
                 let msg = shq(v["msg"] ?? "")

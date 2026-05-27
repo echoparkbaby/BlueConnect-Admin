@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 /// Pop-out tabular view of the last network scan. Same data as the
 /// sidebar's `ScannedSection`, but in a real Table so you can sort,
@@ -22,6 +23,15 @@ struct ScannedTableWindow: View {
     /// zoom survives quit. Clamped to [0.7, 1.6] so the UI can't
     /// shrink past readability or blow the column widths out.
     @AppStorage("scannedTableFontScale") private var fontScale: Double = 1.0
+    /// AppKit-level NSEvent monitor that intercepts ⌘= / ⌘+ / ⌘- /
+    /// ⌘0 when this window is key. SwiftUI's `.keyboardShortcut`
+    /// dispatch turned out unreliable for hidden Buttons in a window
+    /// whose content is dominated by an AppKit-backed Table — the
+    /// shortcuts never fired even when the buttons were hosted in
+    /// the same subtree as a working ⌘R. NSEvent monitors are the
+    /// bulletproof fallback the rest of the app already uses for ⌘W
+    /// tab-close on the main window.
+    @State private var zoomKeyMonitor: Any?
 
     /// Base sizes the scale applies to. The IP column gets a bump
     /// over the other monospace fields because it's the primary
@@ -106,13 +116,9 @@ struct ScannedTableWindow: View {
             }
         }
         .frame(minWidth: 600, idealWidth: 1100, minHeight: 400, idealHeight: 900)
-        // Font-scale shortcut hosts moved into the visible `header`
-        // subtree (next to the working ⌘R Scan button) — see header
-        // view. Hidden Buttons on the root .background didn't become
-        // active key-equivalent targets when an AppKit-backed Table
-        // dominated the content; placing them in the same subtree as
-        // ⌘R fixes that.
         .task { await runScan() }
+        .onAppear { installZoomKeyMonitor() }
+        .onDisappear { removeZoomKeyMonitor() }
         .onAppear {
             // Restore persisted column order/visibility on first
             // render. SwiftUI's TableColumnCustomization is Codable —
@@ -173,21 +179,6 @@ struct ScannedTableWindow: View {
             // other windows (no global cross-window collision).
             .keyboardShortcut("r", modifiers: [.command])
             .disabled(scanner.isScanning)
-
-            // Font-scale shortcut hosts. Buttons need to be in the
-            // visible header subtree (same place as the working ⌘R
-            // Scan button above) — hosting them on the root
-            // .background didn't deliver keystrokes once the
-            // AppKit-backed Table took over the rest of the window.
-            // .opacity(0) + zero frame keeps them invisible.
-            // ⌘= and ⌘+ both fire zoom-in (US keyboards send `=` as
-            // ⌘+ without Shift, but explicit ⌘⇧+ won't match `=`).
-            // Reset uses ⌘⌥0 because app-wide ⌘0 is already bound
-            // to Window → Show BlueConnect Admin.
-            zoomInButton(key: "=")
-            zoomInButton(key: "+")
-            zoomOutButton
-            zoomResetButton
         }
         .padding(.horizontal, 16).padding(.vertical, 10)
     }
@@ -344,29 +335,37 @@ struct ScannedTableWindow: View {
         fontScale = min(max(next, 0.7), 1.6)
     }
 
-    private func zoomInButton(key: KeyEquivalent) -> some View {
-        Button("Zoom in") { bumpScale(by: 0.1) }
-            .keyboardShortcut(key, modifiers: [.command])
-            .opacity(0).frame(width: 0, height: 0)
-            .accessibilityHidden(true)
+    /// Install the AppKit-level key monitor when the scan window
+    /// appears. Filters by `event.window?.title == "Network Scan"`
+    /// so other windows aren't affected even though local monitors
+    /// are app-wide.
+    private func installZoomKeyMonitor() {
+        guard zoomKeyMonitor == nil else { return }
+        zoomKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            guard event.window?.title == "Network Scan" else { return event }
+            guard event.modifierFlags.contains(.command) else { return event }
+            let chars = event.charactersIgnoringModifiers ?? ""
+            switch chars {
+            case "=", "+":
+                Task { @MainActor in bumpScale(by: 0.1) }
+                return nil
+            case "-":
+                Task { @MainActor in bumpScale(by: -0.1) }
+                return nil
+            case "0":
+                Task { @MainActor in fontScale = 1.0 }
+                return nil
+            default:
+                return event
+            }
+        }
     }
 
-    private var zoomOutButton: some View {
-        Button("Zoom out") { bumpScale(by: -0.1) }
-            .keyboardShortcut("-", modifiers: [.command])
-            .opacity(0).frame(width: 0, height: 0)
-            .accessibilityHidden(true)
-    }
-
-    private var zoomResetButton: some View {
-        // ⌘⌥0 — app-wide ⌘0 is already taken by Window → Show
-        // BlueConnect Admin in WindowMenuCommands, so plain ⌘0 here
-        // would lose the duel. ⌥-0 is unambiguous and the closest
-        // muscle-memory option.
-        Button("Reset zoom") { fontScale = 1.0 }
-            .keyboardShortcut("0", modifiers: [.command, .option])
-            .opacity(0).frame(width: 0, height: 0)
-            .accessibilityHidden(true)
+    private func removeZoomKeyMonitor() {
+        if let m = zoomKeyMonitor {
+            NSEvent.removeMonitor(m)
+            zoomKeyMonitor = nil
+        }
     }
 
     private static func ipSortKey(_ ip: String) -> UInt32 {
