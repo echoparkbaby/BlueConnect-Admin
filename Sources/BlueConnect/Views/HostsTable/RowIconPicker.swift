@@ -16,6 +16,11 @@ struct RowIconPicker: View {
     @AppStorage("installRowIconSymbol")      private var installIcon: String = "shippingbox.fill"
     @AppStorage("quickActionsRowIconSymbol") private var qaIcon: String      = "bolt.fill"
     @AppStorage("chatRowIconSymbol")         private var chatIcon: String    = "bubble.left.and.bubble.right.fill"
+    /// Scan table → Type column. Wired vs wireless icons each get
+    /// their own keys + 5 candidates so the operator can pick visuals
+    /// that match their UniFi-style mental model.
+    @AppStorage("scanWiredIconSymbol")       private var scanWiredIcon: String    = "network"
+    @AppStorage("scanWirelessIconSymbol")    private var scanWirelessIcon: String = "dot.radiowaves.left.and.right"
 
     var body: some View {
         VStack(spacing: 0) {
@@ -66,13 +71,31 @@ struct RowIconPicker: View {
                             "text.bubble.fill",
                             "captions.bubble.fill",
                          ])
+                    slot(title: "Scan: Wired", color: .green,
+                         selection: $scanWiredIcon, defaultValue: "network",
+                         candidates: [
+                            "network",
+                            "cable.connector",
+                            "cable.connector.horizontal",
+                            "link",
+                            "personalhotspot",
+                         ])
+                    slot(title: "Scan: Wireless", color: .blue,
+                         selection: $scanWirelessIcon, defaultValue: "dot.radiowaves.left.and.right",
+                         candidates: [
+                            "dot.radiowaves.left.and.right",
+                            "wifi",
+                            "wifi.circle.fill",
+                            "antenna.radiowaves.left.and.right",
+                            "wave.3.right",
+                         ])
                 }
                 .padding(16)
             }
             Divider()
             footer
         }
-        .frame(width: 640, height: 620)
+        .frame(width: 640, height: 780)
     }
 
     // MARK: - Header / Footer
@@ -89,6 +112,8 @@ struct RowIconPicker: View {
                 Image(systemName: installIcon).foregroundStyle(.purple)
                 Image(systemName: qaIcon).foregroundStyle(.pink)
                 Image(systemName: chatIcon).foregroundStyle(.teal)
+                Image(systemName: scanWiredIcon).foregroundStyle(.green)
+                Image(systemName: scanWirelessIcon).foregroundStyle(.blue)
             }
             .font(.title3)
             VStack(alignment: .leading, spacing: 1) {
@@ -110,6 +135,8 @@ struct RowIconPicker: View {
                 installIcon = "shippingbox.fill"
                 qaIcon = "bolt.fill"
                 chatIcon = "bubble.left.and.bubble.right.fill"
+                scanWiredIcon = "network"
+                scanWirelessIcon = "dot.radiowaves.left.and.right"
             }
             .controlSize(.small)
             Spacer()

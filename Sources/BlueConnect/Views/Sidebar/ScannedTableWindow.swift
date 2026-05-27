@@ -32,6 +32,12 @@ struct ScannedTableWindow: View {
     /// bulletproof fallback the rest of the app already uses for ⌘W
     /// tab-close on the main window.
     @State private var zoomKeyMonitor: Any?
+    /// User-picked icons for the Type column (Scan: Wired / Scan:
+    /// Wireless slots in the Customize Row Icons sheet). Reads
+    /// directly from @AppStorage so the table redraws as soon as the
+    /// picker mutates the value.
+    @AppStorage("scanWiredIconSymbol")    private var scanWiredIcon: String    = "network"
+    @AppStorage("scanWirelessIconSymbol") private var scanWirelessIcon: String = "dot.radiowaves.left.and.right"
 
     /// Base sizes the scale applies to. The IP column gets a bump
     /// over the other monospace fields because it's the primary
@@ -267,15 +273,13 @@ struct ScannedTableWindow: View {
                     // x-height). Baseline alignment is the canonical
                     // SwiftUI pattern for icon+text rows.
                     HStack(alignment: .firstTextBaseline, spacing: 4) {
-                        // Swapped from cable.connector + wifi to icons
-                        // with more centered visual weight along their
-                        // baselines:
-                        //   - network: globe-with-lines, Apple's stock
-                        //     wired-connection symbol in System Settings
-                        //   - dot.radiowaves.left.and.right: balanced
-                        //     wave pattern that sits cleanly on the
-                        //     baseline instead of floating high.
-                        Image(systemName: r.isWired ? "network" : "dot.radiowaves.left.and.right")
+                        // Icon comes from the user's picks in View →
+                        // Customize Row Icons → Scan: Wired / Wireless.
+                        // Defaults: "network" (wired), "dot.radiowaves
+                        // .left.and.right" (wireless). Live updates
+                        // because @AppStorage on this view triggers a
+                        // body re-evaluation when the picker writes.
+                        Image(systemName: r.isWired ? scanWiredIcon : scanWirelessIcon)
                             .font(.system(size: smallSize))
                             .foregroundStyle(r.isWired ? .green : .blue)
                         Text(r.typeLabel).font(.system(size: smallSize))
@@ -329,13 +333,12 @@ struct ScannedTableWindow: View {
             }
         }
         // Force SwiftUI to rebuild the entire Table identity whenever
-        // the font scale changes. Without this, the AppKit-backed
-        // NSTableView reuses already-rendered cells and the new
-        // smallSize/rowSize/ipSize values don't take effect until
-        // the user scrolls and the cells get recycled. .id(...)
-        // tied to an Int-scaled-by-100 of fontScale flips on each
-        // ⌘+ / ⌘- press, which triggers a full reload of every row.
-        .id("scan-table-\(Int(fontScale * 100))")
+        // the font scale OR the Type-column icon picks change.
+        // Without this, the AppKit-backed NSTableView reuses
+        // already-rendered cells and new sizing / new SF Symbols
+        // don't take effect until the user scrolls and the cells
+        // get recycled.
+        .id("scan-table-\(Int(fontScale * 100))-\(scanWiredIcon)-\(scanWirelessIcon)")
     }
 
     private func copy(_ s: String) {
