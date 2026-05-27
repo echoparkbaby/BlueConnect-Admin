@@ -5,7 +5,7 @@ import Foundation
 /// the same hostname so the sidebar shows one entry per machine.
 struct LocalService: Identifiable, Hashable, Sendable {
     enum Source: String, Hashable, Sendable {
-        case bonjour, tailscale
+        case bonjour, tailscale, scanned
     }
 
     /// Display name (Bonjour service name, or Tailscale HostName).

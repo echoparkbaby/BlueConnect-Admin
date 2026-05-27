@@ -13,12 +13,35 @@ import SwiftUI
 struct QuickActionsCommands: Commands {
     @ObservedObject var store: QuickActionStore
     @FocusedValue(\.hostActions) private var actions
+    @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
         CommandMenu("Quick Actions") {
+            Button("Browse All Quick Actions…") {
+                openWindow(id: "quick-actions-browser")
+            }
+            .keyboardShortcut("k", modifiers: [.command])
+            Divider()
+            // Starred items get pinned at the top, flat — no category
+            // detour for the user's most-used commands.
+            let favorites = store.allEnabled.favorites
+            if !favorites.isEmpty {
+                Section("Favorites") {
+                    ForEach(favorites) { action in
+                        Button(action.label) {
+                            actions?.runQuickAction(action)
+                        }
+                        .disabled(!(actions?.hasTarget ?? false))
+                    }
+                }
+                Divider()
+            }
+            // Each category becomes its own submenu so the top-level
+            // Quick Actions menu stays a one-screen scan instead of a
+            // 50-item wall. Categories are alphabetized in `grouped`.
             ForEach(Array(store.allEnabled.grouped.enumerated()),
                     id: \.offset) { entry in
-                Section(entry.element.0) {
+                Menu(entry.element.0) {
                     ForEach(entry.element.1) { action in
                         Button(action.label) {
                             actions?.runQuickAction(action)
@@ -33,3 +56,4 @@ struct QuickActionsCommands: Commands {
         }
     }
 }
+

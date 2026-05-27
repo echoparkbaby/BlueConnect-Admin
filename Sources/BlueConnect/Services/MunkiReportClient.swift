@@ -115,6 +115,13 @@ struct MRHostInventory: Codable, Hashable {
     let power: MRPower?
     let comment: MRComment?
     let managed_installs: [MRManagedInstall]?
+    let pending_installs: [MRManagedInstall]?
+    let users: [MRUser]?
+    let network: [MRNetworkInterface]?
+    let wifi: MRWifi?
+    let software_updates: MRSoftwareUpdateStatus?
+    let profiles: [MRProfile]?
+    let timemachine: MRTimeMachine?
 }
 
 /// `machine` table — the core inventory facts MR always has. Column
@@ -270,5 +277,204 @@ struct MRManagedInstall: Codable, Hashable, Identifiable {
     }
     enum CodingKeys: String, CodingKey {
         case name, display_name, version, size, installed, status, type
+    }
+}
+
+/// `network` table from the network module — one row per interface.
+/// PHP aliases MR's actual columns (`service`, `order`, `ethernet`,
+/// `ipv4dns`, `searchdomain`) into the snake_case names below.
+struct MRNetworkInterface: Codable, Hashable, Identifiable {
+    var id: String {
+        "\(service_name ?? "?")|\(service_order ?? 0)|\(ipv4ip ?? "")"
+    }
+    let service_name: String?
+    let service_order: Int?
+    let ipv4ip: String?
+    let ipv4mask: String?
+    let ipv4router: String?
+    let ipv4dnsservers: String?
+    let ipv4searchdomains: String?
+    let ipv6ip: String?
+    let ethernet_macaddress: String?
+
+    /// True when the interface has any kind of IP assigned — used to
+    /// dim "down" / unconfigured interfaces in the UI.
+    var hasAddress: Bool {
+        (ipv4ip ?? "").isEmpty == false || (ipv6ip ?? "").isEmpty == false
+    }
+}
+
+/// `local_users` table — one row per local account on the Mac. PHP
+/// aliases MR's actual columns (`record_name`/`real_name`/`unique_id`/
+/// `home_directory`/`user_shell`/`administrator`) into the names below
+/// and filters to `unique_id >= 500` so this only contains real humans
+/// + local admins, not Apple's `_*` daemons. `last_login_ts` is MR's
+/// `last_login_timestamp` (Unix epoch as bigint, often null).
+struct MRUser: Codable, Hashable, Identifiable {
+    var id: String { "\(uid ?? 0)|\(name ?? username ?? "")" }
+    let uid: Int?
+    let gid: Int?
+    let name: String?
+    let username: String?
+    let realname: String?
+    let home: String?
+    let shell: String?
+    let admin: MRFlexBool?
+    let ssh_access: MRFlexBool?
+    let last_login_ts: Int?
+
+    var shortName: String {
+        if let n = name, !n.isEmpty { return n }
+        if let u = username, !u.isEmpty { return u }
+        return "uid \(uid ?? 0)"
+    }
+
+    var lastLoginDate: Date? {
+        guard let ts = last_login_ts, ts > 0 else { return nil }
+        return Date(timeIntervalSince1970: TimeInterval(ts))
+    }
+}
+
+/// `wifi` (or `wifi_signal` / `airport`) table — one row per host with
+/// the currently-associated Wi-Fi network details. All optional because
+/// the column set differs sharply between MR's wifi-module variants.
+struct MRWifi: Codable, Hashable {
+    let service: String?
+    let ssid: String?
+    let bssid: String?
+    let channel: MRFlexInt?
+    let security: String?
+    let rssi: MRFlexInt?
+    let noise: MRFlexInt?
+    let transmit_rate: String?
+    let country_code: String?
+
+    /// True only when at least one user-facing Wi-Fi field is populated.
+    var hasAnyField: Bool {
+        (ssid?.isEmpty == false)
+        || (security?.isEmpty == false)
+        || channel != nil
+        || rssi != nil
+        || (bssid?.isEmpty == false)
+    }
+
+    /// Best-effort label for signal strength (RSSI is negative dBm; >-50
+    /// is excellent, <-80 is poor). Returns nil when rssi isn't set.
+    var rssiLabel: String? {
+        guard let r = rssi?.value else { return nil }
+        let level: String
+        switch r {
+        case _ where r >= -50: level = "Excellent"
+        case _ where r >= -60: level = "Good"
+        case _ where r >= -70: level = "Fair"
+        default:               level = "Weak"
+        }
+        return "\(r) dBm · \(level)"
+    }
+}
+
+/// `softwareupdate` table — one aggregated status row per host (NOT a
+/// per-update list). Fields are best-effort — different MR versions vary
+/// the column set, hence everything Optional. The accessors below
+/// normalise counts that might come back as int or string.
+struct MRSoftwareUpdateStatus: Codable, Hashable {
+    let recommendedupdates: MRFlexInt?
+    let lastupdatesavailable: MRFlexInt?
+    let lastsuccessfuldate: String?
+    let lastfullsuccessfuldate: String?
+    let auto_update: MRFlexBool?
+    let auto_update_restart_required: MRFlexBool?
+}
+
+/// Codable bridge for fields MR encodes as int OR string (or absent).
+/// Reused for softwareupdate counts + the time-machine `auto_backup` bit.
+enum MRFlexInt: Codable, Hashable {
+    case int(Int), string(String)
+    var value: Int? {
+        switch self {
+        case .int(let i): return i
+        case .string(let s): return Int(s.trimmingCharacters(in: .whitespaces))
+        }
+    }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.singleValueContainer()
+        if let i = try? c.decode(Int.self)    { self = .int(i); return }
+        if let s = try? c.decode(String.self) { self = .string(s); return }
+        self = .int(0)
+    }
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        switch self {
+        case .int(let i):    try c.encode(i)
+        case .string(let s): try c.encode(s)
+        }
+    }
+}
+
+enum MRFlexBool: Codable, Hashable {
+    case bool(Bool), int(Int), string(String)
+    var isOn: Bool {
+        switch self {
+        case .bool(let b): return b
+        case .int(let i):  return i != 0
+        case .string(let s):
+            let v = s.trimmingCharacters(in: .whitespaces).lowercased()
+            return v == "1" || v == "yes" || v == "true" || v == "on"
+        }
+    }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.singleValueContainer()
+        if let b = try? c.decode(Bool.self)   { self = .bool(b); return }
+        if let i = try? c.decode(Int.self)    { self = .int(i);  return }
+        if let s = try? c.decode(String.self) { self = .string(s); return }
+        self = .bool(false)
+    }
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        switch self {
+        case .bool(let b):   try c.encode(b)
+        case .int(let i):    try c.encode(i)
+        case .string(let s): try c.encode(s)
+        }
+    }
+}
+
+/// `profile` table — installed configuration profiles. PHP aliases
+/// `profile_name`/`profile_uuid`/`profile_removal_allowed` into the
+/// shorter names below. `payload_name` is the originating service
+/// (e.g. com.apple.mdm) and `payload_display` is the friendly label.
+/// MR's `payload_data` is deliberately not selected.
+struct MRProfile: Codable, Hashable, Identifiable {
+    var id: String { identifier ?? name ?? UUID().uuidString }
+    let name: String?
+    let identifier: String?
+    let removaldisallowed: MRFlexBool?
+    let payload_name: String?
+    let payload_display: String?
+}
+
+/// `timemachine` table — single row per host. Column names match MR's
+/// snake_case DB schema directly (auto_backup, last_success,
+/// last_destination_id, snapshot_dates, alias_volume_name, network_url,
+/// server_display_name, apfs_snapshots).
+struct MRTimeMachine: Codable, Hashable {
+    let auto_backup: MRFlexBool?
+    let last_success: String?
+    let last_destination_id: String?
+    let snapshot_dates: String?
+    let alias_volume_name: String?
+    let network_url: String?
+    let server_display_name: String?
+    let apfs_snapshots: String?
+
+    /// True only when at least one user-facing field is populated.
+    /// Lets the UI hide the section when MR returned a row of all
+    /// nulls (the row exists but the host hasn't reported TM data).
+    var hasAnyField: Bool {
+        auto_backup != nil
+        || (last_success?.isEmpty == false)
+        || (last_destination_id?.isEmpty == false)
+        || (alias_volume_name?.isEmpty == false)
+        || (server_display_name?.isEmpty == false)
     }
 }

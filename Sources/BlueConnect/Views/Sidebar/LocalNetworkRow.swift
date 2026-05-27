@@ -103,9 +103,36 @@ struct LocalNetworkRow: View {
                 // free-form shell commands run via the direct transport.
                 if !quickActionStore.allEnabled.grouped.isEmpty {
                     Menu("Quick Actions") {
-                        ForEach(Array(quickActionStore.allEnabled.grouped.enumerated()),
+                        let enabled = quickActionStore.allEnabled
+                        let recents = enabled.recents
+                        if !recents.isEmpty {
+                            Section("Recent") {
+                                ForEach(recents) { action in
+                                    Button(action.label) {
+                                        Task { @MainActor in
+                                            quickActionPending = action
+                                        }
+                                    }
+                                }
+                            }
+                            Divider()
+                        }
+                        let favorites = enabled.favorites
+                        if !favorites.isEmpty {
+                            Section("Favorites") {
+                                ForEach(favorites) { action in
+                                    Button(action.label) {
+                                        Task { @MainActor in
+                                            quickActionPending = action
+                                        }
+                                    }
+                                }
+                            }
+                            Divider()
+                        }
+                        ForEach(Array(enabled.grouped.enumerated()),
                                 id: \.offset) { entry in
-                            Section(entry.element.0) {
+                            Menu(entry.element.0) {
                                 ForEach(entry.element.1) { action in
                                     Button(action.label) {
                                         Task { @MainActor in
@@ -156,6 +183,7 @@ struct LocalNetworkRow: View {
         // (header now targets a generic name, not just BlueSkyHost).
         .sheet(item: $quickActionPending) { action in
             QuickActionSheet(targetName: service.name, action: action) { command in
+                quickActionStore.noteUsed(action.id)
                 runRemoteCommand(command, label: action.tabLabel)
             }
         }

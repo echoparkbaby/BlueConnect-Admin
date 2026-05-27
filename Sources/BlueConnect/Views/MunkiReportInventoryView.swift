@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 /// Per-host MunkiReport inventory sheet. Fetches `blueconnect_api.php`
 /// for the given serial and renders the sections that came back —
@@ -37,6 +38,15 @@ struct MunkiReportInventoryView: View {
             }
             Spacer()
             if isLoading { ProgressView().controlSize(.small) }
+            if let serial = host.serialnum,
+               let url = settings.munkiReportDetailURL(serial: serial) {
+                Button {
+                    NSWorkspace.shared.open(url)
+                } label: {
+                    Label("Open in MunkiReport", systemImage: "arrow.up.right.square")
+                }
+                .help("Open this host's dashboard in MunkiReport (browser)")
+            }
             Button {
                 Task { await load() }
             } label: {

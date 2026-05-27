@@ -39,13 +39,13 @@ struct SettingsView: View {
         /// remote user, and Sign Out.
         case blueConnect, security, discovery,
              tailscaleDefaults, packageRepo, eraseInstall,
-             munkiRepo, munkiReport, quickActions,
+             munkiRepo, munkiReport, unifi, quickActions,
              notifications, about
 
         var id: String { rawValue }
         var label: String {
             switch self {
-            case .blueConnect:      return "BlueConnect"
+            case .blueConnect:      return "General"
             case .security:         return "Security"
             case .discovery:        return "Discovery"
             case .tailscaleDefaults:return "Tailscale Defaults"
@@ -53,6 +53,7 @@ struct SettingsView: View {
             case .eraseInstall:     return "Erase Install"
             case .munkiRepo:        return "Munki Repo"
             case .munkiReport:      return "MunkiReport"
+            case .unifi:            return "Network"
             case .quickActions:     return "Quick Actions"
             case .notifications:    return "Notifications"
             case .about:            return "About"
@@ -68,6 +69,7 @@ struct SettingsView: View {
             case .eraseInstall:     return "arrow.triangle.2.circlepath.icloud"
             case .munkiRepo:        return "cube.box"
             case .munkiReport:      return "chart.bar.doc.horizontal"
+            case .unifi:            return "network"
             case .quickActions:     return "bolt.fill"
             case .notifications:    return "bell"
             case .about:            return "info.circle"
@@ -75,17 +77,15 @@ struct SettingsView: View {
         }
     }
 
-    /// Sidebar order — alphabetical, but with "About" pinned to the
-    /// bottom so the credits page is reliably out of the way of
-    /// everyday-setting traffic.
+    /// Sidebar order — alphabetical, with "General" pinned to the
+    /// top (it's the BSC server/login/key page, the first thing a
+    /// new operator needs) and "About" pinned to the bottom (so the
+    /// credits page is reliably out of the way).
     private var sortedSections: [Section] {
-        let (about, rest) = Section.allCases.reduce(into: ([Section](), [Section]())) {
-            partial, sec in
-            if sec == .about { partial.0.append(sec) } else { partial.1.append(sec) }
-        }
-        return rest.sorted {
-            $0.label.localizedCompare($1.label) == .orderedAscending
-        } + about
+        let middle = Section.allCases
+            .filter { $0 != .blueConnect && $0 != .about }
+            .sorted { $0.label.localizedCompare($1.label) == .orderedAscending }
+        return [.blueConnect] + middle + [.about]
     }
 
     var body: some View {
@@ -148,6 +148,7 @@ struct SettingsView: View {
         case .eraseInstall:     eraseInstallPane
         case .munkiRepo:        munkiRepoPane
         case .munkiReport:      munkiReportPane
+        case .unifi:            UniFiSettingsPane()
         case .quickActions:     quickActionsPane
         case .notifications:    notificationsPane
         case .about:            aboutPane
@@ -191,6 +192,9 @@ struct SettingsView: View {
             TextField("Default remote user", text: $settings.defaultRemoteUser,
                       prompt: Text(verbatim: "admin"))
                 .help("Account opened by SSH/VNC/SCP on each remote Mac.")
+            TextField("Chat window title", text: $settings.chatWindowTitle,
+                      prompt: Text(verbatim: "Tech Support"))
+                .help("Title shown on both the admin-side chat window and the remote chat client. Defaults to 'Tech Support' — set to your name or your department's name (e.g. 'Brandon', 'IT Help').")
 
             HStack {
                 Spacer()
@@ -634,8 +638,65 @@ struct SettingsView: View {
             Text("Without the API token, this section is link-out only: right-click a host → Software Inventory → Open in MunkiReport launches the browser.")
                 .font(.caption2).foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
+
+            Divider()
+
+            mrSectionOrderEditor
         }
         .formStyle(.grouped)
+    }
+
+    /// Drag-to-reorder list of MunkiReport inventory sections plus a
+    /// per-section visibility toggle. State lives in `SettingsStore`
+    /// (`munkiReportSectionOrder` + `munkiReportHiddenSections`); the
+    /// inventory pane iterates this order on every render.
+    @ViewBuilder
+    private var mrSectionOrderEditor: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Inventory section order")
+                .font(.caption).bold().foregroundStyle(.secondary)
+            Text("Drag to reorder. Toggle off any section you don't want shown in the right-pane Inventory tab or the standalone MunkiReport sheet.")
+                .font(.caption2).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            // SwiftUI Form's grouped style on macOS doesn't supply an
+            // edit button; List + .onMove on a ForEach is enough to
+            // get drag handles on each row.
+            List {
+                ForEach(settings.munkiReportSectionOrder, id: \.self) { s in
+                    HStack {
+                        Image(systemName: s.systemImage)
+                            .foregroundStyle(.tint)
+                            .frame(width: 18)
+                        Text(s.label)
+                        Spacer()
+                        Toggle("", isOn: Binding(
+                            get: { settings.munkiReportSectionIsVisible(s) },
+                            set: { newVal in
+                                var hidden = settings.munkiReportHiddenSections
+                                if newVal { hidden.remove(s) } else { hidden.insert(s) }
+                                settings.munkiReportHiddenSections = hidden
+                            }
+                        ))
+                        .labelsHidden()
+                        .controlSize(.small)
+                    }
+                }
+                .onMove { source, destination in
+                    var order = settings.munkiReportSectionOrder
+                    order.move(fromOffsets: source, toOffset: destination)
+                    settings.munkiReportSectionOrder = order
+                }
+            }
+            .frame(minHeight: 280, maxHeight: 360)
+            .scrollContentBackground(.hidden)
+
+            Button("Reset to default order") {
+                settings.munkiReportSectionOrder = MRSection.defaultOrder
+                settings.munkiReportHiddenSections = []
+            }
+            .controlSize(.small)
+        }
     }
 
     @State private var munkiReportTestRunning: Bool = false

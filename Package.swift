@@ -15,5 +15,16 @@ let package = Package(
             ],
             path: "Sources/BlueConnect"
         ),
+        // Tiny SwiftUI CLI installed on target Macs as
+        // /usr/local/bin/blueconnect-chat. Spawned by the GUI Helper
+        // LaunchAgent inside the console user's Aqua session so it has
+        // WindowServer access. Reads the admin's incoming messages from
+        // a session directory, writes the user's outgoing replies back.
+        // No deps — uses only AppKit / SwiftUI / Foundation so the
+        // binary stays small and self-contained.
+        .executableTarget(
+            name: "BlueConnectChat",
+            path: "Sources/BlueConnectChat"
+        ),
     ]
 )

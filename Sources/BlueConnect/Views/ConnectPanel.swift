@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct ConnectPanel: View {
     @EnvironmentObject var settings: SettingsStore
@@ -34,6 +35,10 @@ struct ConnectPanel: View {
     @State private var notes: String = ""
     @State private var notesDirty: Bool = false
     @State private var notesHostId: Int = -1
+    /// Holds the serial that was just copied to the clipboard via the
+    /// click-to-copy on the inventory header. Flashes back to nil
+    /// after ~1.2s so the "Copied" affordance is short-lived.
+    @State private var justCopiedSerial: String?
 
     var body: some View {
         ScrollView {
@@ -123,11 +128,46 @@ struct ConnectPanel: View {
 
     private func inventoryHeader(host: BlueSkyHost, serial: String) -> some View {
         HStack(spacing: 6) {
-            Text(serial)
-                .font(.caption2.monospaced()).foregroundStyle(.tertiary)
+            // Click serial to copy. Flashes "✓ Copied" inline for ~1.2s
+            // so the click registers as having done something.
+            let didCopy = (justCopiedSerial == serial)
+            HStack(spacing: 4) {
+                Text(serial)
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(didCopy
+                                     ? AnyShapeStyle(Color.green)
+                                     : AnyShapeStyle(HierarchicalShapeStyle.tertiary))
+                if didCopy {
+                    Text("· copied")
+                        .font(.caption2)
+                        .foregroundStyle(.green)
+                }
+            }
+            .contentShape(Rectangle())
+            .onTapGesture {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(serial, forType: .string)
+                justCopiedSerial = serial
+                Task {
+                    try? await Task.sleep(nanoseconds: 1_200_000_000)
+                    await MainActor.run {
+                        if justCopiedSerial == serial { justCopiedSerial = nil }
+                    }
+                }
+            }
+            .help("Click to copy serial to clipboard")
             Spacer()
             if mrInventory.loadingSerial == serial {
                 ProgressView().controlSize(.small)
+            }
+            if let url = settings.munkiReportDetailURL(serial: serial) {
+                Button {
+                    NSWorkspace.shared.open(url)
+                } label: {
+                    Image(systemName: "arrow.up.right.square")
+                }
+                .buttonStyle(.borderless)
+                .help("Open this host's dashboard in MunkiReport (browser)")
             }
             Button {
                 mrInventory.refresh(serial: serial, settings: settings)
@@ -320,7 +360,7 @@ struct ConnectPanel: View {
     private func userField(_ host: BlueSkyHost) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Remote user").font(.caption).foregroundStyle(.secondary)
-            TextField("ladmin", text: $remoteUser)
+            TextField("shortname", text: $remoteUser)
                 .textFieldStyle(.roundedBorder)
                 .onAppear { syncUser(host: host) }
                 .onChange(of: host.id) { syncUser(host: host) }

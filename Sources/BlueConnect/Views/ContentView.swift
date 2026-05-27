@@ -19,6 +19,8 @@ struct ContentView: View {
     @Environment(InstallController.self) private var installer
     @Environment(PackagePickerController.self) private var packagePicker
     @EnvironmentObject private var quickActionStore: QuickActionStore
+    @Environment(QuickActionLauncher.self) private var quickActionLauncher
+    @Environment(ChatSessionController.self) private var chatController
     @Environment(\.openWindow) private var openWindow
     @State private var showingSettingsSheet = false
     @State private var sortOrder: [KeyPathComparator<BlueSkyHost>] = [
@@ -29,6 +31,11 @@ struct ContentView: View {
     @State private var categoryTargets: [BlueSkyHost] = []
     @State private var showingCategorySheet = false
     @State private var showingActivityLog = false
+    @State private var showingBlockedHosts = false
+    @State private var showingIconPicker = false
+    // Live row icons: each PersistentIconButton owns its own
+    // @AppStorage internally so Table's row caching doesn't swallow
+    // updates. The picker writes the same keys this view reads.
     @State private var vncController: VNCConnectController?
     @Environment(\.openSettings) private var openSettings
     @State private var showingExporter = false
@@ -48,6 +55,10 @@ struct ContentView: View {
     @State private var showingUploadOnlyPicker = false
     @State private var eraseInstallTarget: BlueSkyHost?
     @State private var quickActionTarget: QuickActionTarget?
+    /// Host the user just picked "Open Chat with specific user…" on —
+    /// surfaces the small target-user sheet so they can pick which
+    /// Aqua-session user the chat-start job is addressed to.
+    @State private var chatTargetSheet: BlueSkyHost?
     @State private var showingMunkiBrowser = false
     @State private var munkiReportInventoryHost: BlueSkyHost?
     /// Shared Munki repo store — held at the ContentView level so the
@@ -237,6 +248,16 @@ struct ContentView: View {
             copyProxyCommand: {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(proxyCommandString(), forType: .string)
+            },
+            exportCSV:             { exportCSV() },
+            showActivityLog:       { showingActivityLog = true },
+            showBlockedHosts:      { showingBlockedHosts = true },
+            showCustomizeRowIcons: { showingIconPicker = true },
+            openChat: {
+                if let h = target, h.active {
+                    chatController.present(ChatService(host: h, settings: settings, targetUser: ""))
+                    openWindow(id: "blueconnect-chat")
+                }
             }
         )
     }
@@ -311,7 +332,9 @@ struct ContentView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .toolbar { toolbarContent }
+        // Toolbar removed — all former actions live in the standard
+        // menus now (File / View / app). Kept the modifier off so the
+        // window's titlebar stays clean.
         .sheet(isPresented: $showingSettingsSheet) {
             SettingsView()
                 .environmentObject(settings)
@@ -324,6 +347,14 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showingActivityLog) {
             ActivityLogView().environment(activity)
+        }
+        .sheet(isPresented: $showingBlockedHosts) {
+            BlockedHostsView()
+                .environmentObject(settings)
+                .environmentObject(auth)
+        }
+        .sheet(isPresented: $showingIconPicker) {
+            RowIconPicker()
         }
         .sheet(item: vncSheetItem) { item in
             VNCConnectSheet(controller: item.controller)
@@ -400,6 +431,13 @@ struct ContentView: View {
                                command: command)
             }
         }
+        .sheet(item: $chatTargetSheet) { host in
+            ChatTargetUserSheet(host: host) { targetUser in
+                chatController.present(ChatService(host: host, settings: settings, targetUser: targetUser))
+                openWindow(id: "blueconnect-chat")
+            }
+            .environmentObject(settings)
+        }
         // The Install Package window is a top-level Scene (see
         // BlueConnectApp.swift) so it can be moved + resized. ContentView
         // reacts here to install intents written by that window into the
@@ -423,6 +461,26 @@ struct ContentView: View {
             guard let url = url else { return }
             handlePackagePickerDrop(url: url, hosts: packagePicker.hosts)
             packagePicker.pendingFileDrop = nil
+        }
+        // Quick Actions browser window writes a Run intent here; we
+        // dispatch via the same SSH path as the inline sheet flow, then
+        // clear so the next click fires .onChange cleanly.
+        .onChange(of: quickActionLauncher.pendingRun) { _, run in
+            guard let run = run else { return }
+            runQuickAction(host: run.host, action: run.action, command: run.command)
+            quickActionLauncher.pendingRun = nil
+        }
+        // Drain any pendingRun that was queued while ContentView wasn't
+        // mounted (e.g. the user opened the Browse window with the main
+        // window closed, clicked Run, then SwiftUI reopens the main
+        // window because openWindow(id: "main") fires from the browser).
+        // .onChange only fires on subsequent transitions; this picks up
+        // the value-already-set case.
+        .task {
+            if let run = quickActionLauncher.pendingRun {
+                runQuickAction(host: run.host, action: run.action, command: run.command)
+                quickActionLauncher.pendingRun = nil
+            }
         }
         .sheet(isPresented: $showingMunkiBrowser) {
             MunkiBrowserView(store: munkiStore)
@@ -598,30 +656,13 @@ struct ContentView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    @ToolbarContentBuilder
-    private var toolbarContent: some ToolbarContent {
-        // Pane collapse lives at each pane's outer edge as a chevron
-        // (see PaneCollapser) and in the View menu (⌃⌘S / ⌃⌘P). The
-        // toolbar stays minimal — just the ⋯ Actions menu.
-        ToolbarItem(placement: .primaryAction) {
-            Menu {
-                Button("Refresh") { Task { await hostStore.refresh(settings: settings) } }
-                    .keyboardShortcut("r")
-                Divider()
-                Button("Export Hosts as CSV…") { exportCSV() }
-                    .keyboardShortcut("e")
-                Button("Activity Log…") { showingActivityLog = true }
-                    .keyboardShortcut("a")
-                Divider()
-                Button("Settings…") { openSettings() }
-                    .keyboardShortcut(",")
-            } label: {
-                Image(systemName: "ellipsis.circle")
-            }
-            .menuStyle(.borderlessButton)
-            .help("Actions")
-        }
-    }
+    // The old `toolbarContent` builder is gone — see the note at
+    // `.toolbar { ... }` removal above. All actions migrated to:
+    //   File menu  → Activity Log…, Export Hosts as CSV…
+    //   View menu  → Customize Row Icons…
+    //   app menu   → Blocked Hosts… (after Settings)
+    //   ⌘, opens   → Settings (auto-injected)
+    //   ⌘R refresh → wired in HostActions if/when a shortcut is desired.
 
     private func exportCSV() {
         let csv = HostsCSVBuilder.build(filteredAndSorted)
@@ -655,6 +696,20 @@ struct ContentView: View {
                 primaryButton: .destructive(Text("Delete")) { runAction(.delete, on: host) },
                 secondaryButton: .cancel()
             )
+        case .singleAction(let host, .block):
+            let serial = (host.serialnum ?? "—")
+            return Alert(
+                title: Text("Block Host Permanently?"),
+                message: Text("""
+                    Adds serial \(serial) to the BSC server's blocked_serials list, installs a DB trigger that rejects any future registration with that serial, and runs the same teardown as Delete (scrub key, drop row).
+
+                    Use this for \(host.displayName) (#\(host.blueskyid)) when the Mac is out of your control (sold, transferred) and you can't uninstall BlueSky on the client. The agent will keep retrying — the server will keep refusing.
+
+                    Reversible only by removing the serial from blocked_serials manually on the BSC server.
+                    """),
+                primaryButton: .destructive(Text("Block Forever")) { runAction(.block, on: host) },
+                secondaryButton: .cancel()
+            )
         case .bulkAction(let hosts, .selfdestruct):
             return Alert(
                 title: Text("Send Delete Command to \(hosts.count) Hosts?"),
@@ -667,6 +722,13 @@ struct ContentView: View {
                 title: Text("Delete \(hosts.count) Hosts?"),
                 message: Text(bulkMessage(hosts: hosts, base: "Removes the rows from the DB AND scrubs each pubkey. Irreversible.")),
                 primaryButton: .destructive(Text("Delete \(hosts.count)")) { runBulk(.delete, on: hosts) },
+                secondaryButton: .cancel()
+            )
+        case .bulkAction(let hosts, .block):
+            return Alert(
+                title: Text("Block \(hosts.count) Hosts Permanently?"),
+                message: Text(bulkMessage(hosts: hosts, base: "Adds each host's serial to BlueSky.blocked_serials, scrubs key + row, and refuses any future re-registration with the same serial. Reversible only via the BSC server.")),
+                primaryButton: .destructive(Text("Block \(hosts.count)")) { runBulk(.block, on: hosts) },
                 secondaryButton: .cancel()
             )
         case .result(let title, let message):
@@ -715,26 +777,67 @@ struct ContentView: View {
             .disabledCustomizationBehavior(.visibility)  // can't be hidden — primary identifier
             TableColumn("Connect") { h in
                 HStack(spacing: 6) {
-                    QuickActionButton(icon: "terminal", color: .green,
-                                      enabled: h.active, help: "Remote Shell (SSH)") {
-                        runQuickAction(host: h, kind: .ssh)
+                    PersistentIconButton(
+                        storageKey: "sshRowIconSymbol",
+                        defaultIcon: "terminal",
+                        color: .green,
+                        enabled: h.active,
+                        help: "Remote Shell (SSH)"
+                    ) { runQuickAction(host: h, kind: .ssh) }
+                    PersistentIconButton(
+                        storageKey: "vncRowIconSymbol",
+                        defaultIcon: "display",
+                        color: .blue,
+                        enabled: h.active,
+                        help: "Screen Share (VNC)"
+                    ) { runQuickAction(host: h, kind: .vnc) }
+                    PersistentIconButton(
+                        storageKey: "scpRowIconSymbol",
+                        defaultIcon: "arrow.up.doc.fill",
+                        color: .orange,
+                        enabled: h.active,
+                        help: "File Upload (SCP)"
+                    ) { runQuickAction(host: h, kind: .scp) }
+                    // Visual gutter between the original three
+                    // connection actions (SSH/VNC/SCP) and the
+                    // installation + GUI-helper actions
+                    // (Install/Chat/Quick Actions). Splits the row
+                    // 3-and-3 instead of reading as a single strip.
+                    Rectangle()
+                        .fill(Color.secondary.opacity(0.35))
+                        .frame(width: 1, height: 16)
+                        .padding(.horizontal, 3)
+                    PersistentIconButton(
+                        storageKey: "installRowIconSymbol",
+                        defaultIcon: "shippingbox.fill",
+                        color: .purple,
+                        enabled: h.active && (hasPackageCatalog || settings.isMunkiRepoConfigured),
+                        help: "Install Package"
+                    ) { openPackagePicker(for: [h]) }
+                    // Chat first, then Quick Actions — chat is the
+                    // more frequently-reached action when you're
+                    // helping someone, so it gets the closer slot.
+                    PersistentIconButton(
+                        storageKey: "chatRowIconSymbol",
+                        defaultIcon: "bubble.left.and.bubble.right.fill",
+                        color: .teal,
+                        enabled: h.active,
+                        help: "Open Chat"
+                    ) {
+                        chatController.present(ChatService(host: h, settings: settings, targetUser: ""))
+                        openWindow(id: "blueconnect-chat")
                     }
-                    QuickActionButton(icon: "display", color: .blue,
-                                      enabled: h.active, help: "Screen Share (VNC)") {
-                        runQuickAction(host: h, kind: .vnc)
-                    }
-                    QuickActionButton(icon: "doc.badge.arrow.up", color: .orange,
-                                      enabled: h.active, help: "File Upload (SCP)") {
-                        runQuickAction(host: h, kind: .scp)
-                    }
-                    QuickActionButton(icon: "shippingbox.fill", color: .purple,
-                                      enabled: h.active && (hasPackageCatalog || settings.isMunkiRepoConfigured),
-                                      help: "Install Package") {
-                        openPackagePicker(for: [h])
-                    }
+                    QuickActionsMenuButton(
+                        host: h,
+                        enabled: h.active,
+                        quickActionStore: quickActionStore,
+                        onPick: { action in
+                            quickActionTarget = QuickActionTarget(host: h, action: action)
+                        }
+                    )
                 }
             }
-            .width(min: 100, ideal: 110, max: 130)
+            .width(min: 156, ideal: 168, max: 192)
             .customizationID("connect")
             TableColumn("User", value: \BlueSkyHost.usernameSortKey) { h in
                 UserCell(host: h, defaultUser: settings.defaultRemoteUser)
@@ -890,16 +993,58 @@ struct ContentView: View {
                     Button("Delete from Database…", role: .destructive) {
                         alert = .singleAction(host: h, action: .delete)
                     }
+                    Button("Block Host Permanently…", role: .destructive) {
+                        alert = .singleAction(host: h, action: .block)
+                    }
+                    .disabled((h.serialnum ?? "").isEmpty)
                 }
+                Divider()
+                // Chat — opens a persistent bidirectional chat window
+                // with whoever's at the screen on this host. Requires
+                // the GUI Helper to be installed (the chat client is
+                // installed alongside it).
+                Menu("Open Chat") {
+                    Button("With whoever's at the screen") {
+                        chatController.present(ChatService(host: h, settings: settings, targetUser: ""))
+                        openWindow(id: "blueconnect-chat")
+                    }
+                    Button("With specific user…") {
+                        chatTargetSheet = h
+                    }
+                }
+                .disabled(!h.active)
                 Divider()
                 // Quick Actions sits at the very bottom of the menu so
                 // the common destructive operations don't bury it. Reads
                 // from QuickActionStore so disabled actions are hidden
                 // and custom user actions appear under their categories.
                 Menu("Quick Actions") {
-                    ForEach(Array(quickActionStore.allEnabled.grouped.enumerated()),
+                    let enabled = quickActionStore.allEnabled
+                    let recents = enabled.recents
+                    if !recents.isEmpty {
+                        Section("Recent") {
+                            ForEach(recents) { action in
+                                Button(action.label) {
+                                    quickActionTarget = QuickActionTarget(host: h, action: action)
+                                }
+                            }
+                        }
+                        Divider()
+                    }
+                    let favorites = enabled.favorites
+                    if !favorites.isEmpty {
+                        Section("Favorites") {
+                            ForEach(favorites) { action in
+                                Button(action.label) {
+                                    quickActionTarget = QuickActionTarget(host: h, action: action)
+                                }
+                            }
+                        }
+                        Divider()
+                    }
+                    ForEach(Array(enabled.grouped.enumerated()),
                             id: \.offset) { entry in
-                        Section(entry.element.0) {
+                        Menu(entry.element.0) {
                             ForEach(entry.element.1) { action in
                                 Button(action.label) {
                                     quickActionTarget = QuickActionTarget(host: h, action: action)
@@ -1118,12 +1263,43 @@ struct ContentView: View {
     /// action's `tabLabel`.
     private func runQuickAction(host: BlueSkyHost, action: QuickAction, command: String) {
         recents.recordConnect(blueskyid: host.blueskyid)
+        quickActionStore.noteUsed(action.id)
         let svc = ConnectionService(
             server: settings.serverFqdn,
             adminKeyPath: settings.expandedKeyPath,
             serverSshPort: settings.sshTunnelPort,
             terminals: terminals
         )
+        // Setup intercepts: this Quick Action's shell script installs
+        // the chat binary from /tmp/blueconnect-chat IF staged. We
+        // SCP-push the binary from the app bundle to /tmp on the
+        // target before opening the install terminal tab. SCP uses
+        // its own data channel so the 237KB binary isn't subject to
+        // the inline-base64 truncation we hit with the BSC nc proxy.
+        // Background task: SCP first, then dispatch. If SCP fails we
+        // still run the install — helper + Large Type + Notify User
+        // work without the chat binary, just no chat on this host
+        // until the operator pushes it manually.
+        if action.id == "setupGuiHelper",
+           let chatURL = Bundle.main.url(forResource: "blueconnect-chat", withExtension: nil) {
+            Task { @MainActor in
+                let (status, stderr) = await svc.pushFileViaSCP(
+                    localPath: chatURL.path,
+                    remotePath: "/tmp/blueconnect-chat",
+                    host: host,
+                    remoteUser: settings.defaultRemoteUser
+                )
+                if status != 0 {
+                    Log.warn("Setup",
+                             "SCP of chat binary to \(host.displayName) failed (status \(status)): \(stderr.prefix(200))")
+                }
+                svc.openRemoteCommand(host: host,
+                                      remoteUser: settings.defaultRemoteUser,
+                                      command: command,
+                                      label: action.tabLabel)
+            }
+            return
+        }
         svc.openRemoteCommand(host: host,
                               remoteUser: settings.defaultRemoteUser,
                               command: command,
@@ -1335,21 +1511,30 @@ struct ContentView: View {
         let user = settings.apiUsername
         let pwd = settings.webAdminPass
         Task {
-            let reason = action == .selfdestruct
-                ? "send delete command to \(host.displayName)"
-                : "permanently delete \(host.displayName)"
+            let reason: String
+            switch action {
+            case .selfdestruct: reason = "send delete command to \(host.displayName)"
+            case .delete:       reason = "permanently delete \(host.displayName)"
+            case .block:        reason = "permanently block \(host.displayName)"
+            }
             guard await auth.confirmDestructive(reason: reason) else { return }
             do {
                 let resp = try await BlueSkyAPI.shared.performAction(
                     action, blueskyid: host.blueskyid, apiURL: api, username: user, password: pwd
                 )
                 let note = (resp["note"] as? String) ?? "done"
-                let titleLine = action == .selfdestruct ? "Delete command sent" : "Host deleted"
+                let (alertTitle, activityTitle): (String, String) = {
+                    switch action {
+                    case .selfdestruct: return ("Delete Command Sent", "Delete command sent")
+                    case .delete:       return ("Host Deleted",        "Host deleted")
+                    case .block:        return ("Host Blocked Forever","Host blocked forever")
+                    }
+                }()
                 alert = .result(
-                    title: action == .selfdestruct ? "Delete Command Sent" : "Host Deleted",
+                    title: alertTitle,
                     message: "\(host.displayName) (#\(host.blueskyid)) — \(note)"
                 )
-                activity.record(.delete, title: titleLine, detail: "#\(host.blueskyid) \(host.displayName)")
+                activity.record(.delete, title: activityTitle, detail: "#\(host.blueskyid) \(host.displayName)")
                 await hostStore.refresh(settings: settings)
             } catch {
                 let msg = (error as? APIError)?.errorDescription ?? error.localizedDescription
@@ -1363,9 +1548,12 @@ struct ContentView: View {
         let user = settings.apiUsername
         let pwd = settings.webAdminPass
         Task {
-            let reason = action == .selfdestruct
-                ? "send delete command to \(hosts.count) hosts"
-                : "permanently delete \(hosts.count) hosts"
+            let reason: String
+            switch action {
+            case .selfdestruct: reason = "send delete command to \(hosts.count) hosts"
+            case .delete:       reason = "permanently delete \(hosts.count) hosts"
+            case .block:        reason = "permanently block \(hosts.count) hosts"
+            }
             guard await auth.confirmDestructive(reason: reason) else { return }
             var ok = 0
             var failed: [String] = []
@@ -1382,7 +1570,13 @@ struct ContentView: View {
             }
             await hostStore.refresh(settings: settings)
             selection.removeAll()
-            let title = action == .selfdestruct ? "Delete Command Sent" : "Bulk Delete Done"
+            let title: String = {
+                switch action {
+                case .selfdestruct: return "Delete Command Sent"
+                case .delete:       return "Bulk Delete Done"
+                case .block:        return "Bulk Block Done"
+                }
+            }()
             var msg = "Succeeded: \(ok) of \(hosts.count)"
             if !failed.isEmpty {
                 msg += "\n\nFailed:\n" + failed.prefix(8).joined(separator: "\n")

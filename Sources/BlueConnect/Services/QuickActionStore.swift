@@ -12,8 +12,15 @@ import SwiftUI
 /// wifi" / "run my homemade audit script" use case.
 @MainActor
 final class QuickActionStore: ObservableObject {
-    @AppStorage("quickActionsDisabledIDs") private var disabledIDsJSON: String = "[]"
-    @AppStorage("quickActionsCustomJSON")  private var customJSON: String = "[]"
+    @AppStorage("quickActionsDisabledIDs")  private var disabledIDsJSON: String = "[]"
+    @AppStorage("quickActionsCustomJSON")   private var customJSON: String = "[]"
+    @AppStorage("quickActionsFavoriteIDs") private var favoriteIDsJSON: String = "[]"
+    /// Most-recently-run action IDs, newest first. Persisted as a JSON
+    /// string array so the menu's "Recent" section survives relaunch.
+    @AppStorage("quickActionsRecentIDs")   private var recentIDsJSON: String = "[]"
+    /// How many entries the menu's "Recent" section shows. Settable from
+    /// Settings → Quick Actions; 0 hides the section entirely.
+    @AppStorage("quickActionsRecentLimit") var recentLimit: Int = 3
 
     /// Convenience setter for the IDs of built-in actions the user has
     /// chosen to hide from menus. Persisted as a JSON string array.
@@ -31,6 +38,63 @@ final class QuickActionStore: ObservableObject {
                 objectWillChange.send()
             }
         }
+    }
+
+    /// IDs of actions the user has starred. They surface in a dedicated
+    /// "Favorites" group at the top of the menubar Quick Actions menu and
+    /// the browser-window sidebar, in user-pin order.
+    var favoriteIDs: Set<String> {
+        get {
+            guard let data = favoriteIDsJSON.data(using: .utf8),
+                  let arr = try? JSONDecoder().decode([String].self, from: data)
+            else { return [] }
+            return Set(arr)
+        }
+        set {
+            if let data = try? JSONEncoder().encode(Array(newValue).sorted()),
+               let s = String(data: data, encoding: .utf8) {
+                favoriteIDsJSON = s
+                objectWillChange.send()
+            }
+        }
+    }
+
+    func isFavorite(_ id: String) -> Bool { favoriteIDs.contains(id) }
+
+    /// Ordered list of recently-run action IDs, newest first. Cap at 50
+    /// so we never grow without bound; the menu reads only the top
+    /// `recentLimit`.
+    var recentIDs: [String] {
+        get {
+            guard let data = recentIDsJSON.data(using: .utf8),
+                  let arr = try? JSONDecoder().decode([String].self, from: data)
+            else { return [] }
+            return arr
+        }
+        set {
+            let capped = Array(newValue.prefix(50))
+            if let data = try? JSONEncoder().encode(capped),
+               let s = String(data: data, encoding: .utf8) {
+                recentIDsJSON = s
+                objectWillChange.send()
+            }
+        }
+    }
+
+    /// Record that the user just ran this action. Moves the ID to the
+    /// front of the recents list (dedup if already present). Call from
+    /// every entry point that fires a Quick Action — the right-click
+    /// menu, the row-icon menu, and the Browse window.
+    func noteUsed(_ id: String) {
+        var ids = recentIDs.filter { $0 != id }
+        ids.insert(id, at: 0)
+        recentIDs = ids
+    }
+
+    func toggleFavorite(_ id: String) {
+        var ids = favoriteIDs
+        if ids.contains(id) { ids.remove(id) } else { ids.insert(id) }
+        favoriteIDs = ids
     }
 
     /// User-defined custom actions, persisted as JSON.
@@ -57,7 +121,9 @@ final class QuickActionStore: ObservableObject {
         let builtins = QuickAction.all
             .filter { !disabledIDs.contains($0.id) }
         let customAsQA = customActions.map { $0.asQuickAction() }
-        return ActionList(actions: builtins + customAsQA)
+        return ActionList(actions: builtins + customAsQA,
+                          favoriteIDs: favoriteIDs,
+                          recentIDs: Array(recentIDs.prefix(recentLimit)))
     }
 
     /// Add a new custom action. Generates a UUID-based ID so users can
@@ -87,21 +153,49 @@ final class QuickActionStore: ObservableObject {
 /// by both built-in and custom paths through `allEnabled`.
 struct ActionList {
     let actions: [QuickAction]
+    let favoriteIDs: Set<String>
+    /// IDs of recently-run actions, newest first, already truncated to
+    /// the user's recentLimit by the store. The menu surfaces these
+    /// above Favorites; entries are *in addition to* Favorites, not
+    /// overlapping (a recent that's also a favorite shows in both).
+    let recentIDs: [String]
+
+    init(actions: [QuickAction],
+         favoriteIDs: Set<String> = [],
+         recentIDs: [String] = []) {
+        self.actions = actions
+        self.favoriteIDs = favoriteIDs
+        self.recentIDs = recentIDs
+    }
 
     var isEmpty: Bool { actions.isEmpty }
 
-    /// `[(category-label, [actions])]` — keyed by displayable category
-    /// string so custom actions (free-form category) merge naturally
-    /// with built-in (enum-backed) ones.
+    /// Actions the user has starred, alphabetized by label.
+    var favorites: [QuickAction] {
+        actions
+            .filter { favoriteIDs.contains($0.id) }
+            .sorted { $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending }
+    }
+
+    /// Recently-used actions in MRU order (preserves the order of
+    /// `recentIDs`). Skips IDs that no longer resolve to an enabled
+    /// action — e.g. the user disabled it after running it.
+    var recents: [QuickAction] {
+        let byID = Dictionary(uniqueKeysWithValues: actions.map { ($0.id, $0) })
+        return recentIDs.compactMap { byID[$0] }
+    }
+
+    /// `[(category-label, [actions])]` — categories alphabetized
+    /// case-insensitively. Used to render the menubar submenus and the
+    /// browser-window sidebar consistently.
     var grouped: [(String, [QuickAction])] {
         var byCat: [String: [QuickAction]] = [:]
-        var order: [String] = []
         for a in actions {
-            let key = a.category.rawValue
-            if byCat[key] == nil { order.append(key) }
-            byCat[key, default: []].append(a)
+            byCat[a.category.rawValue, default: []].append(a)
         }
-        return order.map { ($0, byCat[$0] ?? []) }
+        return byCat.keys
+            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+            .map { ($0, byCat[$0] ?? []) }
     }
 }
 

@@ -142,6 +142,69 @@ actor BlueSkyAPI {
         return (try JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
     }
 
+    /// Unblock a serial — DELETE FROM blocked_serials. Reuses the
+    /// bs_host_action endpoint with the new `unblock` action keyed on
+    /// serial (no blueskyid because the host row is already gone). The
+    /// host will reappear in BlueConnect on its next agent reconnect.
+    func unblockSerial(
+        _ serial: String,
+        apiURL: String,
+        username: String,
+        password: String
+    ) async throws -> [String: Any] {
+        let base = sanitizeBase(apiURL)
+        guard let url = URL(string: "\(base)/bs_host_action.json.php") else {
+            throw APIError.badURL
+        }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue(authHeader(username: username, password: password), forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.timeoutInterval = 15
+        req.httpBody = try JSONSerialization.data(withJSONObject: ["action": "unblock", "serial": serial])
+
+        let (data, response): (Data, URLResponse)
+        do {
+            (data, response) = try await URLSession.shared.data(for: req)
+        } catch { throw APIError.network(error) }
+        guard let http = response as? HTTPURLResponse else { throw APIError.badResponse(0, "") }
+        guard (200..<300).contains(http.statusCode) else {
+            throw APIError.badResponse(http.statusCode, String(data: data, encoding: .utf8) ?? "")
+        }
+        return (try JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
+    }
+
+    /// Pull the current contents of BlueSky.blocked_serials. Empty list
+    /// when the table doesn't exist yet (no host has ever been blocked).
+    func fetchBlockedSerials(
+        apiURL: String,
+        username: String,
+        password: String
+    ) async throws -> [BlockedSerial] {
+        let base = sanitizeBase(apiURL)
+        guard let url = URL(string: "\(base)/bs_blocklist.json.php") else {
+            throw APIError.badURL
+        }
+        var req = URLRequest(url: url)
+        req.setValue(authHeader(username: username, password: password), forHTTPHeaderField: "Authorization")
+        req.cachePolicy = .reloadIgnoringLocalCacheData
+        req.timeoutInterval = 15
+
+        let (data, response): (Data, URLResponse)
+        do {
+            (data, response) = try await URLSession.shared.data(for: req)
+        } catch { throw APIError.network(error) }
+        guard let http = response as? HTTPURLResponse else { throw APIError.badResponse(0, "") }
+        guard (200..<300).contains(http.statusCode) else {
+            throw APIError.badResponse(http.statusCode, String(data: data, encoding: .utf8) ?? "")
+        }
+        do {
+            return try JSONDecoder().decode(BlockedSerialsResponse.self, from: data).items
+        } catch {
+            throw APIError.decoding(error)
+        }
+    }
+
     func fetchBlueSkyHosts(apiURL: String, username: String, password: String) async throws -> BlueSkyHostsResponse {
         let base = sanitizeBase(apiURL)
         guard let url = URL(string: "\(base)/bs_hosts.json.php") else {

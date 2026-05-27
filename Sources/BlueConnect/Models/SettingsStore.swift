@@ -38,6 +38,35 @@ final class SettingsStore: ObservableObject {
     @AppStorage("sshTunnelPort") var sshTunnelPort: Int = 3122
     @AppStorage("adminKeyPath") var adminKeyPath: String = "~/.ssh/bluesky_admin"
     @AppStorage("defaultRemoteUser") var defaultRemoteUser: String = "ladmin"
+    /// Title shown on the chat window — both the admin-side panel and
+    /// the remote chat client's NSWindow title bar. Default is the
+    /// neutral "Tech Support"; admins can override per their voice
+    /// ("Brandon", "Computer Help", "Help Desk", etc.).
+    @AppStorage("chatWindowTitle") var chatWindowTitle: String = "Tech Support"
+    /// Comma-separated CIDRs the network scanner probes when the
+    /// operator clicks "Scan" in the sidebar. Defaults to the two
+    /// most-common home/SOHO LAN ranges; admins on /22 or odd
+    /// subnets can edit. /16 is the smallest prefix accepted (the
+    /// scanner refuses /15 and below to keep run time bounded).
+    @AppStorage("scanSubnets") var scanSubnets: String = "10.0.0.0/24, 192.168.1.0/24"
+
+    // MARK: - UniFi controller (optional enrichment for network scans)
+
+    /// UniFi Network Application base URL — e.g. `https://10.0.0.1`
+    /// for a UDM, or `https://unifi.example.com` for an externally
+    /// hosted controller. The scanner appends
+    /// `/proxy/network/integrations/v1/...` to this. Self-signed
+    /// certs are accepted by the client (most home UniFis).
+    @AppStorage("unifiBaseURL") var unifiBaseURL: String = ""
+    /// UniFi site internalReference. Default UniFi installs have
+    /// one site named "default"; advanced setups can have multiple.
+    @AppStorage("unifiSite") var unifiSite: String = "default"
+    /// UniFi integration API key, stored in the Keychain (NOT
+    /// `@AppStorage`, which would put it in unencrypted plist).
+    /// The string property here is the in-memory mirror that the
+    /// settings UI binds to; `saveUnifiAPIKeyToKeychain()` /
+    /// `loadUnifiAPIKeyFromKeychain()` handle persistence.
+    @Published var unifiAPIKey: String = ""
     @AppStorage("hideInactive") var hideInactive: Bool = false  // "Active only" filter
     @AppStorage("showOnlyInactive") var showOnlyInactive: Bool = false  // "Inactive only" filter
 
@@ -312,6 +341,78 @@ final class SettingsStore: ObservableObject {
         !munkiReportURL.isEmpty && !munkiReportAPIToken.isEmpty
     }
 
+    /// JSON-encoded list of `MRSection` rawValues controlling display
+    /// order in the inventory pane. Newly-introduced sections (added in
+    /// app updates) are appended at the end of the resolved list so
+    /// users don't lose access after an upgrade.
+    @AppStorage("mrSectionOrder")  private var mrSectionOrderJSON: String  = ""
+
+    /// JSON-encoded list of `MRSection` rawValues the user has hidden
+    /// from the inventory pane. Empty default = show everything.
+    @AppStorage("mrSectionHidden") private var mrSectionHiddenJSON: String = "[]"
+
+    /// Resolved inventory-section order, with any new-since-last-launch
+    /// sections appended at the end so upgrades never drop content.
+    var munkiReportSectionOrder: [MRSection] {
+        get {
+            let stored: [MRSection]
+            if let data = mrSectionOrderJSON.data(using: .utf8),
+               let raw  = try? JSONDecoder().decode([String].self, from: data) {
+                stored = raw.compactMap { MRSection(rawValue: $0) }
+            } else {
+                stored = []
+            }
+            // Append anything new to preserve forward-compat.
+            let existing = Set(stored)
+            let appended = MRSection.defaultOrder.filter { !existing.contains($0) }
+            let merged = stored.isEmpty ? MRSection.defaultOrder : (stored + appended)
+            return merged
+        }
+        set {
+            let raw = newValue.map(\.rawValue)
+            if let data = try? JSONEncoder().encode(raw),
+               let s    = String(data: data, encoding: .utf8) {
+                mrSectionOrderJSON = s
+            }
+        }
+    }
+
+    /// Set of hidden inventory sections.
+    var munkiReportHiddenSections: Set<MRSection> {
+        get {
+            guard let data = mrSectionHiddenJSON.data(using: .utf8),
+                  let raw  = try? JSONDecoder().decode([String].self, from: data)
+            else { return [] }
+            return Set(raw.compactMap { MRSection(rawValue: $0) })
+        }
+        set {
+            let raw = Array(newValue).map(\.rawValue).sorted()
+            if let data = try? JSONEncoder().encode(raw),
+               let s    = String(data: data, encoding: .utf8) {
+                mrSectionHiddenJSON = s
+            }
+        }
+    }
+
+    func munkiReportSectionIsVisible(_ s: MRSection) -> Bool {
+        !munkiReportHiddenSections.contains(s)
+    }
+
+    /// Browser-openable URL for the per-host MunkiReport detail page.
+    /// `nil` when `munkiReportURL` isn't set or the serial doesn't escape
+    /// cleanly. Path is `/clients/detail/<serial>` — the route used by
+    /// MunkiReport-PHP 5.x.
+    func munkiReportDetailURL(serial: String) -> URL? {
+        let base = munkiReportURL
+            .trimmingCharacters(in: .whitespaces)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard !base.isEmpty,
+              let encoded = serial.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+              !encoded.isEmpty
+        else { return nil }
+        return URL(string: "\(base)/clients/detail/\(encoded)")
+    }
+
     // MARK: Munki repo (Wasabi / S3-compatible / proxy-fronted)
     /// Hostname-style endpoint for the Munki repo, e.g.
     /// `munki.macfaqulty.com` or `s3.us-east-1.wasabisys.com`. No scheme.
@@ -345,6 +446,18 @@ final class SettingsStore: ObservableObject {
 
     private static let munkiSecretAccount = "BlueConnectAdmin.munkiRepoSecretKey"
     private static let munkiBasicAccount  = "BlueConnectAdmin.munkiRepoBasicPassword"
+    private static let unifiAPIKeyAccount = "BlueConnectAdmin.unifiAPIKey"
+
+    func loadUnifiAPIKeyFromKeychain() {
+        unifiAPIKey = KeychainHelper.read(account: Self.unifiAPIKeyAccount) ?? ""
+    }
+    func saveUnifiAPIKeyToKeychain() {
+        KeychainHelper.save(unifiAPIKey, account: Self.unifiAPIKeyAccount)
+    }
+    var isUnifiConfigured: Bool {
+        !unifiBaseURL.trimmingCharacters(in: .whitespaces).isEmpty
+        && !unifiAPIKey.trimmingCharacters(in: .whitespaces).isEmpty
+    }
 
     func loadMunkiSecretFromKeychain() {
         munkiRepoSecretKey = KeychainHelper.read(account: Self.munkiSecretAccount) ?? ""

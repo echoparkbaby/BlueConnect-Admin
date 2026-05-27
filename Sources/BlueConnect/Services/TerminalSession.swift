@@ -4,7 +4,7 @@ import SwiftTerm
 
 @MainActor
 @Observable
-final class TerminalSession: Identifiable {
+final class TerminalSession: NSObject, Identifiable, LocalProcessTerminalViewDelegate {
     let id = UUID()
     let title: String
     let kind: Kind
@@ -23,14 +23,101 @@ final class TerminalSession: Identifiable {
         self.kind = kind
         self.blueskyid = blueskyid
         self.view = LocalProcessTerminalView(frame: NSRect(x: 0, y: 0, width: 800, height: 320))
+        super.init()
         if kind != .local {
-            view.feed(text: "\u{1B}[2m$ \(executable) \(args.joined(separator: " "))\u{1B}[0m\r\n")
+            // The "what's about to run" preview gets fed to SwiftTerm
+            // as a single big line. If args contain a base64-embedded
+            // binary (the GUI Helper install ships a 237KB chat client
+            // inline), the resulting 320KB line takes seconds to push
+            // through SwiftTerm's VT100 state machine on the main
+            // thread — that's the beachball, and the side-effect is
+            // SSH/sudo prompts coming in can't render either. Sanitize
+            // the display line to elide long base64 runs; the real
+            // `args` going to startProcess are untouched.
+            let displayLine = Self.sanitizeForTerminalDisplay(
+                "\(executable) \(args.joined(separator: " "))"
+            )
+            view.feed(text: "\u{1B}[2m$ \(displayLine)\u{1B}[0m\r\n")
         }
         view.startProcess(
             executable: executable,
             args: args,
             environment: Self.fullEnvironment(termName: "xterm-256color")
         )
+        // Surface child exit so a silent ssh/sudo failure shows up
+        // instead of looking like "maybe it worked silently." Without
+        // this, a 320KB install command that aborts before printing
+        // anything just leaves the tab empty and the operator
+        // guessing whether the script succeeded or died at line 2.
+        view.processDelegate = self
+    }
+
+    // MARK: - LocalProcessTerminalViewDelegate
+
+    func sizeChanged(source: LocalProcessTerminalView, newCols: Int, newRows: Int) {
+        // No-op — SwiftTerm handles internal layout. Hook reserved for
+        // when we add a status bar that needs the current cols/rows.
+    }
+
+    func setTerminalTitle(source: LocalProcessTerminalView, title: String) {
+        // No-op — we use the host-derived title from init() and don't
+        // honor OSC 0/2 retitles; would otherwise let a misbehaving
+        // shell rewrite the tab name out from under us.
+    }
+
+    func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {
+        // No-op.
+    }
+
+    /// Banner the exit code into the terminal so an immediate ssh/sudo
+    /// failure is visible. Without this, a 320KB install command that
+    /// crashes before printing anything just leaves a blank tab and
+    /// the operator can't tell whether sudo ran or aborted.
+    func processTerminated(source: TerminalView, exitCode: Int32?) {
+        isRunning = false
+        let banner: String
+        if let code = exitCode {
+            banner = code == 0
+                ? "\r\n\u{1B}[2m[exited 0]\u{1B}[0m\r\n"
+                : "\r\n\u{1B}[1;33m[exited \(code)]\u{1B}[0m\r\n"
+        } else {
+            banner = "\r\n\u{1B}[1;31m[exited unexpectedly — I/O error]\u{1B}[0m\r\n"
+        }
+        view.feed(text: banner)
+    }
+
+    /// Replace any contiguous base64 run of 200+ chars with a short
+    /// placeholder. Same heuristic as `QuickActionSheet.sanitizeForDisplay`
+    /// — keeps the preview readable and, more importantly, keeps the
+    /// terminal renderer from choking on 320KB of opaque data.
+    private static let base64BlobRegex: NSRegularExpression = {
+        try! NSRegularExpression(pattern: "[A-Za-z0-9+/]{200,}={0,2}")
+    }()
+
+    static func sanitizeForTerminalDisplay(_ command: String) -> String {
+        // Pass 1: elide long base64 blobs (helper install / chat client
+        // installer payloads etc.) so SwiftTerm doesn't have to render
+        // 300KB of opaque data through its VT100 state machine.
+        var out = command
+        let nsCommand = out as NSString
+        let range = NSRange(location: 0, length: nsCommand.length)
+        let blobMatches = base64BlobRegex.matches(in: out, range: range)
+        for match in blobMatches.reversed() {
+            guard let r = Range(match.range, in: out) else { continue }
+            let lenBytes = out.distance(from: r.lowerBound, to: r.upperBound)
+            let kb = max(1, lenBytes / 1024)
+            out.replaceSubrange(r, with: "<\(kb)KB base64 payload sent over SSH>")
+        }
+        // Pass 2: collapse bash line-continuations (`\` + newline +
+        // leading whitespace) into a single space, so a multi-statement
+        // shell payload renders as one logical line that the terminal
+        // soft-wraps based on its width — instead of forty 80-column
+        // lines with stray backslashes and ragged indentation.
+        if let lineContRegex = try? NSRegularExpression(pattern: #"\\\s*\n\s*"#) {
+            let r2 = NSRange(out.startIndex..., in: out)
+            out = lineContRegex.stringByReplacingMatches(in: out, range: r2, withTemplate: " ")
+        }
+        return out
     }
 
     private static func fullEnvironment(termName: String) -> [String] {

@@ -144,12 +144,58 @@ struct ConnectionService {
     /// Open an embedded terminal tab that runs a one-shot remote command
     /// (e.g. a curl + installer pipeline) over the BSC SSH tunnel. -t
     /// allocates a TTY so sudo can prompt for a password if needed.
+    /// Push a local file to a remote path via SCP over the BSC tunnel.
+    /// Used to ship the chat binary (~237KB) to `/tmp` ahead of the
+    /// Setup install command, since inline base64 in the SSH command
+    /// line gets truncated by the BSC nc proxy at ~320KB. SCP's own
+    /// data channel has no such limit.
+    ///
+    /// Background process, no terminal tab. Returns (status, stderr).
+    @MainActor
+    func pushFileViaSCP(localPath: String,
+                        remotePath: String,
+                        host: BlueSkyHost,
+                        remoteUser: String) async -> (Int32, String) {
+        let proxy = "ssh -o WarnWeakCrypto=no -p \(serverSshPort) -i \(adminKeyPath) admin@\(server) /bin/nc %h %p"
+        let args = [
+            "-o", "ProxyCommand=\(proxy)",
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "WarnWeakCrypto=no",
+            "-o", "BatchMode=yes",
+            "-o", "ConnectTimeout=15",
+            "-P", "\(host.sshPort)",
+            localPath,
+            "\(remoteUser)@localhost:\(remotePath)",
+        ]
+        return await Task.detached(priority: .userInitiated) {
+            let proc = Process()
+            proc.launchPath = "/usr/bin/scp"
+            proc.arguments = args
+            let errPipe = Pipe()
+            proc.standardError = errPipe
+            proc.standardOutput = Pipe()
+            do { try proc.run() } catch {
+                return (-1, "scp launch failed: \(error)")
+            }
+            proc.waitUntilExit()
+            let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
+            let errStr = String(data: errData, encoding: .utf8) ?? ""
+            return (proc.terminationStatus, errStr)
+        }.value
+    }
+
     func openRemoteCommand(host: BlueSkyHost, remoteUser: String,
                            command: String, label: String) {
         onConnect?(host)
         let proxy = "ProxyCommand=ssh -o WarnWeakCrypto=no -p \(serverSshPort) -i \(adminKeyPath) admin@\(server) /bin/nc %h %p"
+        // `-tt` (not `-t`): force-allocates a remote PTY even if ssh
+        // thinks the local side doesn't have a controlling tty. With
+        // single `-t`, sudo's prompt over an SSH-with-command was
+        // landing in a stream that wouldn't render in our terminal
+        // tab — leaving the install hung-but-silent. Forcing the
+        // remote PTY makes sudo's prompt visible (and typeable).
         let args = [
-            "-t", "-o", proxy,
+            "-tt", "-o", proxy,
             "-o", "StrictHostKeyChecking=no",
             "-o", "WarnWeakCrypto=no",
             "-p", "\(host.sshPort)", "\(remoteUser)@localhost",

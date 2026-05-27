@@ -13,6 +13,7 @@ struct QuickActionsSettingsPane: View {
 
     var body: some View {
         Form {
+            recentsSection
             builtInsSection
             customSection
         }
@@ -21,6 +22,33 @@ struct QuickActionsSettingsPane: View {
             CustomQuickActionEditor { draft in
                 quickActions.addCustom(draft)
             }
+        }
+    }
+
+    // MARK: - Recents
+
+    @ViewBuilder
+    private var recentsSection: some View {
+        Section {
+            Stepper(
+                "Show \(quickActions.recentLimit) recent action\(quickActions.recentLimit == 1 ? "" : "s") at the top of Quick Actions menus",
+                value: Binding(
+                    get: { quickActions.recentLimit },
+                    set: { quickActions.recentLimit = max(0, min(20, $0)) }
+                ),
+                in: 0...20
+            )
+            HStack {
+                Text("0 hides the Recent section entirely.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Button("Clear recents") {
+                    quickActions.recentIDs = []
+                }
+                .disabled(quickActions.recentIDs.isEmpty)
+            }
+        } header: {
+            Text("Recents")
         }
     }
 
@@ -44,13 +72,19 @@ struct QuickActionsSettingsPane: View {
 
     private var builtInGroups: [(String, [QuickAction])] {
         var byCat: [String: [QuickAction]] = [:]
-        var order: [String] = []
         for a in QuickAction.all {
-            let key = a.category.rawValue
-            if byCat[key] == nil { order.append(key) }
-            byCat[key, default: []].append(a)
+            byCat[a.category.rawValue, default: []].append(a)
         }
-        return order.map { ($0, byCat[$0] ?? []) }
+        // Categories alphabetized for findability — the original
+        // declaration order (in QuickAction.all) tracked code
+        // history, not user intent, and made specific actions
+        // hard to locate when the toggle list grew long. Actions
+        // within each category stay in declaration order so e.g.
+        // FileVault: status-y reads / rotate-key / remove-user
+        // keep their logical-severity ordering.
+        return byCat.keys
+            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+            .map { ($0, byCat[$0] ?? []) }
     }
 
     private func builtInRow(_ action: QuickAction) -> some View {

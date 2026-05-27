@@ -5,6 +5,8 @@
 // Actions:
 //   "selfdestruct"  → UPDATE computers SET selfdestruct=1 (client uninstalls on next check-in)
 //   "delete"        → DELETE FROM computers WHERE blueskyid=N (also wipes the corresponding pubkey from /home/bluesky/.ssh/authorized_keys)
+//   "block"         → adds the host's serial to BlueSky.blocked_serials, installs a BEFORE INSERT trigger on `computers` that rejects future inserts with that serial, and runs the same delete teardown. Used to permanently keep a sold/transferred Mac off the fleet even though its BlueSky agent will keep retrying. Pair with examples/bluesky/scripts/purge-blocked.sh (cron, every minute) for belt-and-suspenders cleanup if a rogue host somehow re-registers via a different path.
+//   "unblock"       → DELETE FROM blocked_serials WHERE serial=? (POSTs with {serial: "..."} instead of {blueskyid: N} since the host row is already gone). After unblocking, the next time the Mac's BlueSky agent reconnects, the row is recreated normally and the host reappears in BlueConnect.
 // Drop into /var/docker/bluesky/ on the host (it's bind-mounted into /var/www/html/).
 
 ini_set('display_errors', '0');
@@ -44,16 +46,51 @@ $data = json_decode($body, true);
 if (!is_array($data)) bs_fail(400, 'bad json body');
 
 $action = (string)($data['action'] ?? '');
-$bid    = (int)($data['blueskyid'] ?? 0);
-if ($bid <= 0) bs_fail(400, 'invalid blueskyid');
-if (!in_array($action, ['selfdestruct', 'delete'], true)) {
-    bs_fail(400, 'unknown action', ['allowed' => ['selfdestruct', 'delete']]);
+if (!in_array($action, ['selfdestruct', 'delete', 'block', 'unblock'], true)) {
+    bs_fail(400, 'unknown action', ['allowed' => ['selfdestruct', 'delete', 'block', 'unblock']]);
+}
+
+// `unblock` is keyed on serial (the host row is already gone, so there's
+// no blueskyid to look up). Every other action is keyed on blueskyid.
+$bid = 0;
+if ($action !== 'unblock') {
+    $bid = (int)($data['blueskyid'] ?? 0);
+    if ($bid <= 0) bs_fail(400, 'invalid blueskyid');
 }
 
 $dbHost = bs_env('MYSQLSERVER') ?: 'db';
 $dbPass = bs_env('MYSQLROOTPASS');
 $mysqli = @new mysqli($dbHost, 'root', $dbPass, 'BlueSky');
 if ($mysqli->connect_errno) bs_fail(500, 'db: ' . $mysqli->connect_error);
+
+if ($action === 'unblock') {
+    $serial = trim((string)($data['serial'] ?? ''));
+    if ($serial === '' || strlen($serial) > 64) {
+        bs_fail(400, 'invalid serial — must be 1..64 chars');
+    }
+    $stmt = $mysqli->prepare('DELETE FROM blocked_serials WHERE serial=?');
+    $stmt->bind_param('s', $serial);
+    if (!$stmt->execute()) {
+        // ER_NO_SUCH_TABLE (1146) — table doesn't exist yet, treat as no-op.
+        if ($mysqli->errno === 1146) {
+            echo json_encode(['ok' => true, 'action' => 'unblock', 'serial' => $serial, 'affected' => 0,
+                              'note' => 'blocked_serials table does not exist (no host has ever been blocked) — nothing to unblock']);
+            exit;
+        }
+        bs_fail(500, 'unblock failed: ' . $mysqli->error);
+    }
+    $affected = $stmt->affected_rows;
+    echo json_encode([
+        'ok'       => true,
+        'action'   => 'unblock',
+        'serial'   => $serial,
+        'affected' => $affected,
+        'note'     => $affected > 0
+            ? 'serial removed from blocklist; trigger will allow the host to re-register on its next reconnect'
+            : 'serial was not in the blocklist — no change',
+    ]);
+    exit;
+}
 
 if ($action === 'selfdestruct') {
     $stmt = $mysqli->prepare('UPDATE computers SET selfdestruct=1 WHERE blueskyid=?');
@@ -68,6 +105,79 @@ if ($action === 'selfdestruct') {
         'note'      => 'client will uninstall on next check-in',
     ]);
     exit;
+}
+
+// Block: add the host's serial to a server-side blocklist, then run the same
+// teardown as `delete`. Auto-creates the `blocked_serials` table and a
+// BEFORE INSERT trigger on `computers` so any future re-registration with the
+// same serial is rejected at the DB layer. Idempotent — running on an already-
+// blocked host just re-runs delete teardown.
+if ($action === 'block') {
+    if (!$mysqli->query("CREATE TABLE IF NOT EXISTS blocked_serials (
+        serial VARCHAR(64) NOT NULL PRIMARY KEY,
+        added_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        blueskyid_at_block INT NULL,
+        note VARCHAR(255) NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4")) {
+        bs_fail(500, 'create blocked_serials failed: ' . $mysqli->error);
+    }
+
+    // Trigger drop + recreate. CREATE TRIGGER needs SUPER on some MySQL
+    // builds; if it fails the block still goes through and the cron
+    // sweeper handles future re-registrations. We surface the install
+    // status in the response so the caller (and admin log) knows
+    // which layer of defense is active.
+    $mysqli->query("DROP TRIGGER IF EXISTS bc_block_rogue_insert");
+    $triggerInstalled  = false;
+    $triggerInstallErr = null;
+    if (!$mysqli->query("
+        CREATE TRIGGER bc_block_rogue_insert
+        BEFORE INSERT ON computers
+        FOR EACH ROW
+        BEGIN
+            IF (NEW.serialnum IS NOT NULL
+                AND NEW.serialnum <> ''
+                AND EXISTS (SELECT 1 FROM blocked_serials WHERE serial = NEW.serialnum)
+            ) THEN
+                SIGNAL SQLSTATE '45000'
+                SET MESSAGE_TEXT = 'serial is on BlueConnect blocked_serials list';
+            END IF;
+        END
+    ")) {
+        $triggerInstallErr = $mysqli->error;
+    } else {
+        $triggerInstalled = true;
+    }
+
+    // Look up the host's serial so we can store it in the blocklist.
+    $serialToBlock = '';
+    if ($s = $mysqli->prepare('SELECT serialnum FROM computers WHERE blueskyid=? LIMIT 1')) {
+        $s->bind_param('i', $bid);
+        $s->execute();
+        $res = $s->get_result();
+        if ($res && ($row = $res->fetch_assoc())) {
+            $serialToBlock = trim((string)($row['serialnum'] ?? ''));
+        }
+        $s->close();
+    }
+    if ($serialToBlock === '') {
+        bs_fail(409, "host #$bid has no serial number — cannot block by serial; use selfdestruct or delete instead");
+    }
+
+    $note = isset($data['note']) ? substr((string)$data['note'], 0, 255) : null;
+    $ins = $mysqli->prepare("INSERT INTO blocked_serials (serial, blueskyid_at_block, note)
+                             VALUES (?, ?, ?)
+                             ON DUPLICATE KEY UPDATE
+                                 blueskyid_at_block = VALUES(blueskyid_at_block),
+                                 note               = COALESCE(VALUES(note), note)");
+    $ins->bind_param('sis', $serialToBlock, $bid, $note);
+    if (!$ins->execute()) bs_fail(500, 'insert blocked_serials failed: ' . $mysqli->error);
+
+    // Fall through to the existing delete path so the row + key are scrubbed
+    // immediately. Marking $action as delete lets the existing code do its
+    // thing and report `affected` / `authorizedKeyRemoved`.
+    $action = 'delete';
+    $isBlockFollowup = true;
 }
 
 if ($action === 'delete') {
@@ -163,13 +273,23 @@ if ($action === 'delete') {
     $stmt->bind_param('i', $bid);
     if (!$stmt->execute()) bs_fail(500, 'delete failed: ' . $mysqli->error);
     $affected = $stmt->affected_rows;
+
+    $wasBlock = !empty($isBlockFollowup);
+    $blockNote = ($triggerInstalled ?? false)
+        ? 'serial added to blocked_serials; row + key removed; DB trigger active — future re-registration rejected at INSERT'
+        : 'serial added to blocked_serials; row + key removed; DB trigger could NOT be installed (likely SUPER privilege missing) — relying on cron sweeper for ongoing enforcement';
     echo json_encode([
-        'ok'              => true,
-        'action'          => 'delete',
-        'blueskyid'       => $bid,
-        'affected'        => $affected,
+        'ok'                   => true,
+        'action'               => $wasBlock ? 'block' : 'delete',
+        'blueskyid'            => $bid,
+        'affected'             => $affected,
         'authorizedKeyRemoved' => $removedKey,
-        'note'            => 'row deleted; client tunnel will fail on next reconnect',
+        'serialBlocked'        => $wasBlock ? ($serialToBlock ?? null) : null,
+        'triggerInstalled'     => $wasBlock ? ($triggerInstalled ?? false) : null,
+        'triggerInstallError'  => $wasBlock ? ($triggerInstallErr ?? null) : null,
+        'note'                 => $wasBlock
+            ? $blockNote
+            : 'row deleted; client tunnel will fail on next reconnect',
     ]);
     exit;
 }

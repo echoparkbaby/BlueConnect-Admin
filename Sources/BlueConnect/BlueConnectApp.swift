@@ -21,12 +21,18 @@ struct BlueConnectAdminApp: App {
     @State private var packageCatalog = PackageCatalogStore()
     @State private var installer = InstallController()
     @State private var packagePicker = PackagePickerController()
+    @State private var chatController = ChatSessionController()
+    @State private var networkScanner = NetworkScanner()
     @State private var mrInventory = MunkiReportInventoryStore()
     @StateObject private var quickActionStore = QuickActionStore()
+    @State private var quickActionLauncher = QuickActionLauncher()
 
     var body: some Scene {
-        WindowGroup("BlueConnect Admin") {
+        // id: "main" so `openWindow(id: "main")` can reopen the window
+        // from the Window menu (⌘0) after the user closes it.
+        WindowGroup("BlueConnect Admin", id: "main") {
             RootSceneView()
+            .modifier(MainWindowReopenerCapture())
             .environmentObject(settings)
             .environmentObject(auth)
             .environment(hosts)
@@ -41,8 +47,11 @@ struct BlueConnectAdminApp: App {
             .environment(packageCatalog)
             .environment(installer)
             .environment(packagePicker)
+            .environment(chatController)
+            .environment(networkScanner)
             .environment(mrInventory)
             .environmentObject(quickActionStore)
+            .environment(quickActionLauncher)
             .task {
                 Log.info("App", "BlueConnect Admin starting")
                 auth.bootstrap(settings: settings)
@@ -50,10 +59,12 @@ struct BlueConnectAdminApp: App {
                 settings.loadRepoPasswordsFromKeychain()
                 settings.loadMunkiSecretFromKeychain()
                 settings.loadMunkiReportTokenFromKeychain()
+                settings.loadUnifiAPIKeyFromKeychain()
                 if settings.localNetworkEnabled { rendezvous.start() }
                 tailscale.settings = settings
                 if settings.tailscaleEnabled { tailscale.start() }
                 MainWindowGuard.shared.install(terminals: terminals)
+                MainWindowCloseGuard.shared.install(terminals: terminals)
                 if !settings.packageCatalogURL.isEmpty {
                     await packageCatalog.refresh(urlString: settings.packageCatalogURL)
                 }
@@ -114,6 +125,7 @@ struct BlueConnectAdminApp: App {
             QuickActionsCommands(store: quickActionStore)
             TerminalTabCommands(terminals: terminals)
             FocusMenubarCommand()
+            WindowMenuCommands()
         }
         // Hide the giant unified-toolbar title text that macOS 14+ injects
         // — it sat awkwardly across the sidebar splitter. Traffic lights
@@ -183,6 +195,59 @@ struct BlueConnectAdminApp: App {
         }
         .windowResizability(.contentSize)
         .defaultPosition(.center)
+
+        // Pop-out tabular view of the network scanner results. Reads
+        // from the shared `networkScanner` so it shows the same data
+        // as the sidebar `ScannedSection`, just in a roomier Table
+        // with sortable columns + multi-row context menu.
+        Window("Network Scan", id: "scanned-table") {
+            ScannedTableWindow()
+                .environmentObject(settings)
+                .environment(networkScanner)
+                .environment(rendezvous)
+        }
+        .windowResizability(.contentSize)
+        .defaultPosition(.center)
+
+        // Standalone chat window. Reads the active session from
+        // `chatController` so it stays independent of the main
+        // window — the admin can keep the chat open while doing
+        // anything else in BlueConnect. One chat at a time by design;
+        // opening a new chat replaces the previous session.
+        Window("Chat", id: "blueconnect-chat") {
+            ChatWindowScene()
+                .environmentObject(settings)
+                .environment(chatController)
+        }
+        .windowResizability(.contentSize)
+        .defaultPosition(.center)
+
+        // Quick Actions browser — full catalog of canned admin commands
+        // with descriptions, parameter forms, and a live command preview.
+        // Run routes through `QuickActionLauncher.pendingRun` which
+        // ContentView observes to dispatch via the existing SSH path.
+        //
+        // **Title note:** must NOT be "Quick Actions" — that collides
+        // with the `CommandMenu("Quick Actions")` AppKit attaches at
+        // top-level, and the resulting duplicate menu entry trips an
+        // NSTouchBarFinder KVO crash on macOS 26 when the menu opens.
+        // `.commandsRemoved()` also suppresses the auto Window-menu
+        // entry, matching the InstallProgress window pattern.
+        // Quick Actions browser — full catalog of canned admin commands.
+        // Matches the InstallProgress window pattern: .contentMinSize +
+        // .commandsRemoved() avoids the touch-bar KVO crash that fires
+        // when SwiftUI opens this Window without an explicit resizability.
+        Window("Browse Quick Actions", id: "quick-actions-browser") {
+            QuickActionsBrowserWindow()
+                .environmentObject(settings)
+                .environmentObject(quickActionStore)
+                .environment(hosts)
+                .environment(quickActionLauncher)
+        }
+        .windowResizability(.contentMinSize)
+        .defaultSize(width: 960, height: 620)
+        .defaultPosition(.center)
+        .commandsRemoved()
 
         MenuBarExtra {
             MenuBarContent()
@@ -298,15 +363,22 @@ private struct WindowAccessor: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
         Task { @MainActor in
-            window = view.window
+            window = Self.mainWindow(from: view)
         }
         return view
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
         Task { @MainActor in
-            window = nsView.window
+            window = Self.mainWindow(from: nsView)
         }
+    }
+
+    private static func mainWindow(from view: NSView) -> NSWindow? {
+        guard let window = view.window,
+              window.isBlueConnectAdminMainWindow
+        else { return nil }
+        return window
     }
 }
 
@@ -351,16 +423,30 @@ final class MainWindowGuard {
     weak var mainWindow: NSWindow? {
         didSet {
             guard let mainWindow, mainWindow !== oldValue else { return }
-            // Swap the class to our subclass once. Safe because BCMainWindow
-            // adds no stored properties — Objective-C runtime allows this.
-            if !(mainWindow is BCMainWindow) {
-                object_setClass(mainWindow, BCMainWindow.self)
-            }
+            guard mainWindow.isBlueConnectAdminMainWindow else { return }
+            // DISABLED: object_setClass(window, BCMainWindow.self) was racing
+            // with AppKit's _NSTouchBarFinderObservation KVO setup on macOS
+            // 26, crashing during the display cycle whenever a second Window
+            // scene opened. Codex's "skip if already KVO-subclassed" guard
+            // didn't catch all timings. Until we rebuild ⌘W tab-close via a
+            // different mechanism, the swap is off.
+            _ = mainWindow
         }
     }
     fileprivate weak var terminals: TerminalSessionsManager?
 
     func install(terminals: TerminalSessionsManager) {
         self.terminals = terminals
+    }
+}
+
+private extension NSWindow {
+    var isBlueConnectAdminMainWindow: Bool {
+        title == "BlueConnect Admin"
+    }
+
+    var canInstallBlueConnectMainWindowClass: Bool {
+        let className = NSStringFromClass(object_getClass(self) ?? NSWindow.self)
+        return !className.hasPrefix("NSKVONotifying_")
     }
 }

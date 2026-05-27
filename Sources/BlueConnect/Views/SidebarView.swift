@@ -34,6 +34,8 @@ struct SidebarView: View {
                         Divider().padding(.vertical, 6)
                         TailscaleSection()
                     }
+                    Divider().padding(.vertical, 6)
+                    ScannedSection()
                     if settings.isMunkiRepoConfigured && !settings.sidebarMunkiHidden {
                         Divider().padding(.vertical, 6)
                         MunkiRepoSidebarSection(

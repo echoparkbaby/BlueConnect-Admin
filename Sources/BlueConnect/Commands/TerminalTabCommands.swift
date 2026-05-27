@@ -32,7 +32,7 @@ struct TerminalTabCommands: Commands {
             .disabled(terminals.activeSessionID == nil)
 
             Button("Kill All Tunnels") { terminals.killAllTunnels() }
-                .keyboardShortcut("k", modifiers: [.command, .shift])
+                .keyboardShortcut("k", modifiers: [.command, .shift, .control])
                 .disabled(terminals.tunnels.isEmpty)
 
             Divider()

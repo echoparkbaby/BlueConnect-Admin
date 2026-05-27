@@ -76,6 +76,23 @@ struct HostActions {
     /// custom ~/.ssh/config Host stanza.
     let copyProxyCommand: () -> Void
 
+    // MARK: - Former toolbar ⋯ menu items, redistributed across the
+    // standard menus (File / View / app).
+
+    /// File → "Export Hosts as CSV…" — opens a Save panel for the
+    /// current filtered+sorted host list.
+    let exportCSV: () -> Void
+    /// File → "Activity Log…" — opens the in-app activity log sheet.
+    let showActivityLog: () -> Void
+    /// app menu → "Blocked Hosts…" — opens the blocked-serials sheet.
+    let showBlockedHosts: () -> Void
+    /// View → "Customize Row Icons…" — opens the row-icon picker sheet.
+    let showCustomizeRowIcons: () -> Void
+
+    /// Connect → "Chat…" — opens the chat window for the current
+    /// target host, addressed to whoever's at the screen.
+    let openChat: () -> Void
+
     static let none = HostActions(
         hasTarget: false,
         ssh: {}, vnc: {}, scp: {}, installPackage: {}, uploadToRepo: {},
@@ -97,7 +114,12 @@ struct HostActions {
         reconnectActive: {},
         canReconnectActive: false,
         copySSHCommand: {},
-        copyProxyCommand: {}
+        copyProxyCommand: {},
+        exportCSV: {},
+        showActivityLog: {},
+        showBlockedHosts: {},
+        showCustomizeRowIcons: {},
+        openChat: {}
     )
 }
 

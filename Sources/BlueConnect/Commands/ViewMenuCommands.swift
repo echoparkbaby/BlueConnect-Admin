@@ -59,6 +59,14 @@ struct ViewMenuCommands: Commands {
                 Button("Status")   { actions?.setSortField("status") }
                 Button("Last Seen") { actions?.setSortField("last_seen") }
             }
+
+            // Migrated from the old toolbar ⋯ menu. Dividers above and
+            // below isolate it visually from Sort By + whatever menu
+            // SwiftUI auto-appends below this group.
+            Divider()
+            Button("Customize Row Icons…") { actions?.showCustomizeRowIcons() }
+                .disabled(actions == nil)
+            Divider()
         }
     }
 }

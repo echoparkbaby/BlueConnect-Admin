@@ -12,6 +12,11 @@ import UniformTypeIdentifiers
 /// single configured source without a chooser.
 struct PackagePickerSheet: View {
     let hosts: [BlueSkyHost]
+    /// Set when the picker is opened from a Local Network row instead of
+    /// the BSC hosts list. `hosts` is empty in that case, but we still
+    /// want the header to show the Mac's friendly name so the user can
+    /// confirm they're aiming at the right thing.
+    var localTargetName: String? = nil
     let onInstall: (Package) -> Void
     /// Called when the user picks a Munki package. Owner is responsible
     /// for fetching the installer via SigV4 and running it on `hosts`.
@@ -170,7 +175,7 @@ struct PackagePickerSheet: View {
 
     private var targetSummary: String {
         switch hosts.count {
-        case 0: return "no host"
+        case 0: return localTargetName ?? "no host"
         case 1: return hosts[0].displayName
         default: return "\(hosts.count) hosts"
         }
@@ -681,7 +686,7 @@ struct PackagePickerSheet: View {
             }
             .buttonStyle(.borderedProminent)
             .keyboardShortcut(.defaultAction)
-            .disabled(!canRunSelection || hosts.isEmpty)
+            .disabled(!canRunSelection || !hasInstallTarget)
         }
         .padding(.horizontal, 16).padding(.vertical, 12)
     }
@@ -704,8 +709,16 @@ struct PackagePickerSheet: View {
         }
     }
 
+    /// True when there's somewhere to send the install — a non-empty BSC
+    /// host list, OR a Local Network localTarget. Without this the LAN
+    /// install path is dead because `hosts` is intentionally empty when
+    /// LocalNetworkRow opens the picker.
+    private var hasInstallTarget: Bool {
+        !hosts.isEmpty || localTargetName != nil
+    }
+
     private func runSelected() {
-        guard let pkg = selected, !hosts.isEmpty else { return }
+        guard let pkg = selected, hasInstallTarget else { return }
         if pkg.isDestructive {
             pendingDestructive = pkg
         } else {
@@ -714,7 +727,7 @@ struct PackagePickerSheet: View {
     }
 
     private func runSelectedMunki() {
-        guard let pkg = selectedMunkiPkg, !hosts.isEmpty else { return }
+        guard let pkg = selectedMunkiPkg, hasInstallTarget else { return }
         onInstallMunki(pkg)
         dismiss()
     }

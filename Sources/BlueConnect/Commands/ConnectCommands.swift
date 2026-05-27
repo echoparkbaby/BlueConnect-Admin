@@ -24,6 +24,10 @@ struct ConnectCommands: Commands {
                 .keyboardShortcut("4", modifiers: [.command])
                 .disabled(!(actions?.hasTarget ?? false) || !(actions?.hasPackages ?? false))
 
+            Button("Chat…") { actions?.openChat() }
+                .keyboardShortcut("5", modifiers: [.command])
+                .disabled(!(actions?.hasTarget ?? false))
+
             Button("Upload Package to Repo…") { actions?.uploadToRepo() }
                 .keyboardShortcut("u", modifiers: [.command, .shift])
 

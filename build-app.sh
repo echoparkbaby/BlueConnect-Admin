@@ -45,6 +45,23 @@ mkdir -p "$APP_BUNDLE/Contents/Resources"
 cp ".build/release/$EXEC_NAME" "$APP_BUNDLE/Contents/MacOS/$EXEC_NAME"
 chmod +x "$APP_BUNDLE/Contents/MacOS/$EXEC_NAME"
 
+# Embed the chat-client binary inside the .app's Resources. The Mac app
+# pushes this over SCP on first chat open so the target gets
+# /usr/local/bin/blueconnect-chat (a tiny SwiftUI window the GUI Helper
+# LaunchAgent launches in the console user's Aqua session).
+#
+# Single-arch (whatever Swift built for the host) is fine for now since
+# all fleet Macs we manage are Apple Silicon. If we later need Intel
+# coverage, the right move is two `swift build -c release` runs with
+# --arch arm64 and --arch x86_64 then `lipo -create` them.
+if [[ -f ".build/release/BlueConnectChat" ]]; then
+    cp ".build/release/BlueConnectChat" "$APP_BUNDLE/Contents/Resources/blueconnect-chat"
+    chmod +x "$APP_BUNDLE/Contents/Resources/blueconnect-chat"
+    echo "▶ embedded chat client at: $APP_BUNDLE/Contents/Resources/blueconnect-chat ($(du -h "$APP_BUNDLE/Contents/Resources/blueconnect-chat" | cut -f1))"
+else
+    echo "⚠️  chat client binary missing — chat feature will be unavailable"
+fi
+
 # App icon
 if [[ -f "$PROJECT_ROOT/Resources/AppIcon.icns" ]]; then
     cp "$PROJECT_ROOT/Resources/AppIcon.icns" "$APP_BUNDLE/Contents/Resources/AppIcon.icns"

@@ -5,16 +5,35 @@ A native macOS admin client for [BlueSkyConnect](https://github.com/BlueSkyTools
 ![BlueConnect Admin screenshot](Resources/screenshot.png)
 
 > [!IMPORTANT]
-> **Upgrading from v1.1.x? Re-deploy the server-side PHP after updating the Mac app.**
-> [v1.2.0](https://github.com/echoparkbaby/BlueConnect-Admin/releases/tag/v1.2.0) ships critical fixes to the `bs_*.json.php` endpoints — most notably a bug in `bs_host_action.json.php` where the **Delete Host** action could strip every reverse-tunnel SSH key from `/home/bluesky/.ssh/authorized_keys`, not just the deleted host's. The Mac app upgrade alone doesn't pick up those server-side fixes; you have to push the new PHP files:
+> **Upgrading from v1.2.x? Re-deploy the server-side PHP after updating the Mac app.**
+> [v1.3.0](https://github.com/echoparkbaby/BlueConnect-Admin/releases/tag/v1.3.0) ships a new endpoint (`bs_blocklist.json.php`), a new `block` / `unblock` action in `bs_host_action.json.php` (with an auto-installed `BlueSky.blocked_serials` table + BEFORE INSERT trigger that refuses re-registration of sold/transferred Macs), and an updated `blueconnect_api.php` covering seven additional MunkiReport modules — local users, network, Wi-Fi, software updates, profiles, time machine, pending installs. The Mac app upgrade alone doesn't pick up those server-side changes; you have to push the new PHP files:
 >
 > ```sh
 > ./deploy-server.sh <ssh-user>@<bsc-host>
 > ```
 >
-> See the [v1.2.0 release notes](https://github.com/echoparkbaby/BlueConnect-Admin/releases/tag/v1.2.0) for the full list (health-probe hardening, DB-backed auth option, migration-ordering fix, new orphan-key audit endpoint).
+> Then update the MunkiReport file separately (it lives on a different host than BSC):
+>
+> ```sh
+> scp -P 2225 server/munkireport-module/blueconnect_api.php \
+>     <user>@<mr-host>:~/<munkireport-stack>/public/
+> ```
+>
+> Recommended on the BSC LXC for the new Block Host Permanently feature: `bash ~/docker/stacks/bluesky/scripts/install-blocklist-cron.sh` installs a per-minute sweeper that scrubs any rogue row + key the BEFORE INSERT trigger didn't catch.
+>
+> See the [v1.3.0 release notes](https://github.com/echoparkbaby/BlueConnect-Admin/releases/tag/v1.3.0) for the full list — new Browse Quick Actions window, Block Host Permanently / Unblock UI, expanded MR inventory sections, Logout User MR-backed picker, Set Computer Name live preview, ⌘0 to reopen the main window, action consolidations.
 
 ## Highlights
+
+### Quick Actions Browser — one window, every canned admin command
+
+![Browse Quick Actions window with the Set Computer Name action selected](Resources/screenshots/quick-actions-browser.png)
+
+A standalone resizable window (⌘⇧K, or **Quick Actions → Browse All Quick Actions…**) that surfaces every Quick Action in one categorized list. Pick a target host at the top, click any action on the left to see its description, parameters, and the exact shell command that will run on the right. Star the ones you use most — they pin to a **Favorites** group at the top of both the browser and the menubar Quick Actions menu, persisted across launches.
+
+Categories cover the whole catalog now — Munki / MunkiReport / Packages / Diagnostics / Time Machine / FileVault / Security & MDM / Disk & Spotlight / Privacy & TCC / Networking / Logs / Process & App / Email / BlueConnect Fleet / UI Tweaks / etc. Roughly 60 actions out of the box, all alphabetized. Need a per-host commit? Right-click any host → **Quick Actions** still gives you the inline sheet.
+
+Several actions get smarter when MunkiReport is configured: **Logout User…** pulls the live `local_users` list for the target Mac into a picker (with admin badges) instead of asking you to remember shortnames; **Set Computer Name…** shows a live "Will set:" preview of all three macOS hostname slots as you type, with a "unchanged" pill on the ones your scope picker excludes.
 
 ### Munki repo browser & installer · MunkiReport inventory in the side pane
 
@@ -22,7 +41,7 @@ A native macOS admin client for [BlueSkyConnect](https://github.com/BlueSkyTools
 
 Point the app at any S3-compatible Munki repo (Wasabi, AWS S3, Cloudflare R2, Backblaze B2, DigitalOcean Spaces) or a plain-HTTPS / HTTP-Basic-Auth-fronted server. Browse and search the catalog, right-click any package to drill into older versions, then deploy to one host or many via a multi-select picker.
 
-The right-side pane has an **Inventory** tab that pulls MunkiReport data inline — machine info, last check-in, Munki run status, FileVault, disk, battery, managed installs. Backed by a tiny standalone `blueconnect_api.php` file that drops into MR's `public/` directory; no upstream module changes.
+The right-side pane has an **Inventory** tab that pulls MunkiReport data inline — machine, MunkiReport check-in, local users (with admin + SSH-access badges), network interfaces, Wi-Fi (SSID, channel, signal), Munki run status, pending Apple updates, FileVault, storage, battery, Time Machine, configuration profiles, pending Munki installs, and managed installs. Each section is reorderable + hideable in Settings → MunkiReport. Backed by a tiny standalone `blueconnect_api.php` file that drops into MR's `public/` directory; no upstream module changes. A small arrow button in the section header opens that host's full MunkiReport page in your default browser.
 
 ### Erase / Reinstall macOS, one structured sheet
 
@@ -34,7 +53,18 @@ Drives [Graham Pugh's `erase-install.sh`](https://github.com/grahampugh/erase-in
 
 <img src="Resources/screenshots/quick-admin-actions.png" alt="Quick Actions top-level menu" width="280" />
 
-Top-level **Quick Actions** menu — or right-click any host → **Quick Actions** for the same list in context. Categories cover Secure Tokens (grant / status), User Accounts (hide / unhide / logout / delete), FileVault (authenticated restart), Software (Homebrew install), System (set computer name across all three macOS hostname slots), and Fix Annoyances (click-wallpaper-to-show-desktop toggle, scrollbars always visible). Each action shows the exact shell command before you run it, and Settings → Quick Actions lets you hide built-ins or add your own custom shell-command actions.
+The original feature that the Browser (above) expands on. Top-level **Quick Actions** menu — or right-click any host → **Quick Actions** for the same list in context. Each category is a nested submenu so the top level scans cleanly; favorited actions appear flat at the top. Each action shows the exact shell command before you run it, and Settings → Quick Actions lets you hide built-ins or add your own custom shell-command actions.
+
+### Block Host Permanently
+
+For Macs that have been sold, transferred, or are otherwise out of your admin reach but whose BlueSky agent keeps phoning home: right-click → **Danger Zone → Block Host Permanently…**. Behind the scenes:
+
+- Adds the host's serial to a new `BlueSky.blocked_serials` table (auto-created on first block).
+- Installs a `BEFORE INSERT` trigger on `computers` that rejects any future registration with that serial at the DB layer.
+- Runs the same teardown as Delete (scrub `authorized_keys`, drop the row).
+- A per-minute cron sweeper (`examples/bluesky/scripts/purge-blocked.sh`) catches any survivor that slips past the trigger.
+
+Made a mistake? **Quick Actions menu → Blocked Hosts…** lists every blocked serial with a per-row **Unblock** button. The host reappears on its next agent reconnect.
 
 ## Download
 
@@ -64,16 +94,30 @@ Quick recap of every file shipped under `server/`:
 ```
 server/
 ├── bs_auth.php                  ┐
+├── bs_blocklist.json.php        │
 ├── bs_categories.json.php       │  BSC endpoints + shared HTTP-Basic
 ├── bs_health.json.php           │  helper — deploy as a group via
 ├── bs_host_action.json.php      ├─ deploy-server.sh
-├── bs_host_update.json.php      │
-├── bs_hosts.json.php            │
-├── bs_authkeys_audit.json.php   ┘  (optional — orphan-key audit)
+├── bs_host_update.json.php      │  (bs_host_action gained block/unblock
+├── bs_hosts.json.php            │   actions in v1.3.0 — see Block Host
+├── bs_authkeys_audit.json.php   ┘   Permanently above)
 ├── catalog.php                  — Optional: drop in Direct Package Repo's pkgs/ dir
 ├── munkireport-module/
 │   └── blueconnect_api.php      — Optional: drop in MunkiReport's public/ dir
+│                                  (covers machine / users / network / wifi /
+│                                   munki / softwareupdate / filevault / disk /
+│                                   power / timemachine / profiles / pending +
+│                                   managed installs / comment in one call)
 └── migrations/                  — Auto-run by BSC endpoints on first request
+```
+
+Companion shell scripts (not part of `deploy-server.sh`) for the Block Host Permanently feature live under `examples/bluesky/scripts/`:
+
+```
+examples/bluesky/scripts/
+├── purge-blocked.sh             — per-minute cron sweeper (cleans any rows
+│                                  that slip past the BEFORE INSERT trigger)
+└── install-blocklist-cron.sh    — one-shot installer; run on the bluesky LXC
 ```
 
 ### 1. BlueSkyConnect endpoints (required)
@@ -300,7 +344,7 @@ That's it — the host list populates from the server.
 | ⌃⌘1 | Jump to Log tab |
 | ⌃⌘2 … ⌃⌘9 | Jump to terminal tab N |
 | ⌘⇧D | Detach active tab to its own window |
-| ⌘⇧K | Kill all active SSH tunnels |
+| ⌘⌃⇧K | Kill all active SSH tunnels |
 | ⌘W | Close active terminal tab (main window) · close detached terminal window |
 | ⌘⇧W | (In a detached terminal window) reattach to the main window's tab bar |
 
@@ -331,6 +375,8 @@ That's it — the host list populates from the server.
 | ⌘A | Open Activity Log |
 | ⌘D | Toggle favorite on selected host |
 | ⌘S | Save host notes (when the right-pane notes field is dirty) |
+| ⌘⇧K | Open the Browse Quick Actions window |
+| ⌘0 | Show / reopen the main BlueConnect Admin window |
 | ⌘⇧L | Lock now (Touch ID re-required if enabled) |
 | Esc | Close Settings window · clear the host search field |
 
