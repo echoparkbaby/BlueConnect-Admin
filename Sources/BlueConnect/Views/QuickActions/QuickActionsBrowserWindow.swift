@@ -338,10 +338,14 @@ private struct DetailPane: View {
             VStack(alignment: .leading, spacing: 14) {
                 header
                 if let help = action.help, !help.isEmpty {
-                    Text(help)
+                    // Same Markdown rendering pattern as
+                    // QuickActionSheet — clickable URLs, bullet
+                    // alignment, selectable for copy.
+                    Text(.init(help))
                         .font(.callout)
                         .foregroundStyle(.primary)
                         .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
                 }
                 if !action.fields.isEmpty {
                     fields

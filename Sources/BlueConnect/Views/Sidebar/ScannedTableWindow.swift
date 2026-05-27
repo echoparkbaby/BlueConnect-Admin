@@ -106,20 +106,12 @@ struct ScannedTableWindow: View {
             }
         }
         .frame(minWidth: 600, idealWidth: 1100, minHeight: 400, idealHeight: 900)
-        // Hidden font-scale shortcuts. Bind ⌘=, ⌘+, ⌘-, ⌘0 each on
-        // a SEPARATE .background button — bundling all three under a
-        // Group with a zero frame caused SwiftUI to drop them from
-        // key dispatch. Per-button .background mirrors the working
-        // ⌘F pattern in DetachedTerminalView.
-        //
-        // Both `=` and `+` are bound for "zoom in" because macOS
-        // treats the unshifted `=` key as ⌘+ on US keyboards but
-        // explicit ⌘⇧+ won't hit that binding — registering both
-        // covers either way the operator types it.
-        .background(zoomInButton(key: "="))
-        .background(zoomInButton(key: "+"))
-        .background(zoomOutButton)
-        .background(zoomResetButton)
+        // Font-scale shortcut hosts moved into the visible `header`
+        // subtree (next to the working ⌘R Scan button) — see header
+        // view. Hidden Buttons on the root .background didn't become
+        // active key-equivalent targets when an AppKit-backed Table
+        // dominated the content; placing them in the same subtree as
+        // ⌘R fixes that.
         .task { await runScan() }
         .onAppear {
             // Restore persisted column order/visibility on first
@@ -181,6 +173,21 @@ struct ScannedTableWindow: View {
             // other windows (no global cross-window collision).
             .keyboardShortcut("r", modifiers: [.command])
             .disabled(scanner.isScanning)
+
+            // Font-scale shortcut hosts. Buttons need to be in the
+            // visible header subtree (same place as the working ⌘R
+            // Scan button above) — hosting them on the root
+            // .background didn't deliver keystrokes once the
+            // AppKit-backed Table took over the rest of the window.
+            // .opacity(0) + zero frame keeps them invisible.
+            // ⌘= and ⌘+ both fire zoom-in (US keyboards send `=` as
+            // ⌘+ without Shift, but explicit ⌘⇧+ won't match `=`).
+            // Reset uses ⌘⌥0 because app-wide ⌘0 is already bound
+            // to Window → Show BlueConnect Admin.
+            zoomInButton(key: "=")
+            zoomInButton(key: "+")
+            zoomOutButton
+            zoomResetButton
         }
         .padding(.horizontal, 16).padding(.vertical, 10)
     }
@@ -352,8 +359,12 @@ struct ScannedTableWindow: View {
     }
 
     private var zoomResetButton: some View {
+        // ⌘⌥0 — app-wide ⌘0 is already taken by Window → Show
+        // BlueConnect Admin in WindowMenuCommands, so plain ⌘0 here
+        // would lose the duel. ⌥-0 is unambiguous and the closest
+        // muscle-memory option.
         Button("Reset zoom") { fontScale = 1.0 }
-            .keyboardShortcut("0", modifiers: [.command])
+            .keyboardShortcut("0", modifiers: [.command, .option])
             .opacity(0).frame(width: 0, height: 0)
             .accessibilityHidden(true)
     }

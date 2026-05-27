@@ -121,10 +121,19 @@ struct QuickActionSheet: View {
                 Spacer()
             }
             if let help = action.help, !help.isEmpty {
-                Text(help)
+                // Markdown rendering: bare URLs become clickable, **bold**
+                // and `inline code` render the way the catalog author
+                // typed them, and bullet lists align without depending on
+                // monospaced-space tricks (which broke when SwiftUI's
+                // proportional caption font collapsed the alignment).
+                Text(.init(help))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+            }
+            if let cmd = action.copyableCommand, !cmd.isEmpty {
+                copyableCommandBlock(cmd)
             }
             // Sheets for actions that dispatch through the GUI Helper
             // LaunchAgent get a banner reminding the user to run the
@@ -156,6 +165,44 @@ struct QuickActionSheet: View {
 
     private static func needsGuiHelperHint(actionID: String) -> Bool {
         guiHelperActionIDs.contains(actionID)
+    }
+
+    /// Bordered monospaced block showing `cmd` with a Copy button in
+    /// the top-right corner. Used for long-form one-liners (uninstall
+    /// recipes etc.) that the catalog author wants the operator to
+    /// paste into a terminal — not run via this sheet. Visually
+    /// distinct from the "Will run on" preview at the bottom so the
+    /// operator can't confuse "click Run on this" with "copy this and
+    /// paste it elsewhere."
+    @ViewBuilder
+    private func copyableCommandBlock(_ cmd: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text("Copy this command to run elsewhere:")
+                    .font(.caption2).foregroundStyle(.secondary)
+                Spacer()
+                Button {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(cmd, forType: .string)
+                } label: {
+                    Label("Copy", systemImage: "doc.on.doc")
+                }
+                .controlSize(.small)
+                .buttonStyle(.borderless)
+            }
+            ScrollView(.horizontal, showsIndicators: false) {
+                Text(cmd)
+                    .font(.caption.monospaced())
+                    .textSelection(.enabled)
+                    .padding(6)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(NSColor.textBackgroundColor))
+            .overlay(
+                RoundedRectangle(cornerRadius: 4)
+                    .stroke(Color.secondary.opacity(0.3))
+            )
+        }
     }
 
     @ViewBuilder

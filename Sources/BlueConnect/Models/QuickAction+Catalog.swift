@@ -826,9 +826,10 @@ extension QuickAction {
             help: """
             Shows a macOS notification banner to whoever's at the screen. Smaller / less attention-grabbing than Large Type.
 
-            Requires the BlueConnect Helper to be installed on the target Mac. Two install paths:
-              • Per-host: run the "Setup: Install GUI Helper (one-time)" Quick Action.
-              • Fleet-scale (recommended): deploy BlueConnectHelper.pkg via Munki — https://github.com/echoparkbaby/BlueConnect-Admin/releases/latest/download/BlueConnectHelper.pkg
+            Requires the **BlueConnect Helper** on the target Mac. Two install paths:
+
+            - **Per-host:** run **Setup: Install GUI Helper (one-time)** from the Miscellaneous Quick Actions.
+            - **Fleet-scale** (recommended): deploy via Munki — [BlueConnectHelper.pkg](https://github.com/echoparkbaby/BlueConnect-Admin/releases/latest/download/BlueConnectHelper.pkg)
             """,
             buildCommand: { v in
                 // AppleScript string literal: double-quoted, with
@@ -925,21 +926,22 @@ extension QuickAction {
             fields: [],
             tabLabel: "setup-gui-helper", isDestructive: true,
             help: """
-            ONE-TIME per Mac. Installs an Aqua-session LaunchAgent that lets BlueConnect display fullscreen text / notifications in the logged-in user's session — without NOPASSWD sudo, without granting standing root.
+            **ONE-TIME per Mac.** Installs an Aqua-session LaunchAgent that lets BlueConnect display fullscreen text / notifications in the logged-in user's session — without NOPASSWD sudo, without granting standing root.
 
-            FLEET-SCALE ALTERNATIVE (recommended for >3 Macs): download BlueConnectHelper.pkg from the latest GitHub release and deploy via Munki. One sync rolls the helper to every enrolled Mac, no per-host SSH dance.
-              https://github.com/echoparkbaby/BlueConnect-Admin/releases/latest/download/BlueConnectHelper.pkg
+            **Fleet-scale alternative** (recommended for >3 Macs): deploy `BlueConnectHelper.pkg` via Munki. One sync rolls the helper to every enrolled Mac, no per-host SSH. Download: [BlueConnectHelper.pkg](https://github.com/echoparkbaby/BlueConnect-Admin/releases/latest/download/BlueConnectHelper.pkg)
 
-            What you'll see when running this Quick Action: a terminal tab opens, sudo prompts for your password ONCE (type it in the tab), the helper script + LaunchAgent plist + inbox directory get installed, and the agent loads for the current console user. After that, Large Type and Notify User dispatch through the helper (no sudo at runtime).
+            **What this Quick Action does:** opens a terminal tab, prompts you once for sudo, installs the helper script + LaunchAgent + inbox dir, and loads the agent for the current console user. After that, Large Type and Notify User dispatch through the helper with no sudo at runtime.
 
-            Files installed:
-              /usr/local/bin/blueconnect-gui-helper                                            (worker script)
-              /usr/local/bin/blueconnect-chat                                                  (chat client, universal binary)
-              /Library/LaunchAgents/xyz.hellocomputer.blueconnect-helper.plist                 (Aqua-session LaunchAgent)
-              /Library/Application Support/BlueConnect/inbox/                                  (job drop folder, world-writable)
+            **Files installed:**
 
-            Uninstall: `sudo launchctl bootout gui/$(id -u $(stat -f%Su /dev/console)) /Library/LaunchAgents/xyz.hellocomputer.blueconnect-helper.plist && sudo rm /Library/LaunchAgents/xyz.hellocomputer.blueconnect-helper.plist /usr/local/bin/blueconnect-gui-helper /usr/local/bin/blueconnect-chat && sudo rm -rf /Library/Application\\ Support/BlueConnect`.
+            - `/usr/local/bin/blueconnect-gui-helper` — worker script
+            - `/usr/local/bin/blueconnect-chat` — chat client (universal binary)
+            - `/Library/LaunchAgents/xyz.hellocomputer.blueconnect-helper.plist` — Aqua-session LaunchAgent
+            - `/Library/Application Support/BlueConnect/inbox/` — job drop folder (world-writable)
+
+            **Uninstall:** click Copy on the box below, paste into a Terminal on the target Mac.
             """,
+            copyableCommand: "sudo launchctl bootout gui/$(id -u $(stat -f%Su /dev/console)) /Library/LaunchAgents/xyz.hellocomputer.blueconnect-helper.plist && sudo rm /Library/LaunchAgents/xyz.hellocomputer.blueconnect-helper.plist /usr/local/bin/blueconnect-gui-helper /usr/local/bin/blueconnect-chat && sudo rm -rf '/Library/Application Support/BlueConnect'",
             buildCommand: { _ in
                 // The helper script + LaunchAgent plist are base64-
                 // encoded at build time so we don't have to fight
@@ -1187,13 +1189,14 @@ extension QuickAction {
             ],
             tabLabel: "largetype", isDestructive: false,
             help: """
-            Throws a full-screen big-text message in front of the user via `largetype` (installed at /usr/local/bin/largetype). Defaults: white text on translucent black, Futura font, 5-second hide.
+            Throws a full-screen big-text message in front of the user via `largetype` (installed at `/usr/local/bin/largetype`). Defaults: white text on translucent black, Futura font, 5-second hide.
 
-            Requires the BlueConnect Helper to be installed on the target Mac. Two install paths:
-              • Per-host: run the "Setup: Install GUI Helper (one-time)" Quick Action.
-              • Fleet-scale (recommended): deploy BlueConnectHelper.pkg via Munki — https://github.com/echoparkbaby/BlueConnect-Admin/releases/latest/download/BlueConnectHelper.pkg
+            Requires the **BlueConnect Helper** on the target Mac. Two install paths:
 
-            Note: `largetype` itself is a third-party binary, not bundled in BlueConnectHelper.pkg. It needs to exist at /usr/local/bin/largetype on the target Mac (deploy separately via Munki or your existing fleet-management tool).
+            - **Per-host:** run **Setup: Install GUI Helper (one-time)** from the Miscellaneous Quick Actions.
+            - **Fleet-scale** (recommended): deploy via Munki — [BlueConnectHelper.pkg](https://github.com/echoparkbaby/BlueConnect-Admin/releases/latest/download/BlueConnectHelper.pkg)
+
+            **Note:** `largetype` itself is third-party and is **not** bundled in the pkg. It needs to exist at `/usr/local/bin/largetype` on the target Mac (deploy separately via Munki or your existing fleet-management tool).
             """,
             buildCommand: { v in
                 let msg = shq(v["msg"] ?? "")

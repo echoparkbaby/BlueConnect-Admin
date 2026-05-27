@@ -15,7 +15,17 @@ struct QuickAction: Identifiable, Hashable {
     let isDestructive: Bool
     /// Multi-line description shown under the action title in the sheet.
     /// Use it to explain WHAT the toggle does in user-facing terms.
+    /// Rendered as Markdown (`Text(.init(help))`), so inline URLs like
+    /// `<https://example.com>` or `[label](https://example.com)` become
+    /// clickable. Triple-backtick code blocks aren't supported in
+    /// SwiftUI's Markdown subset — use `copyableCommand` for that.
     var help: String? = nil
+    /// Long shell command worth surfacing with a one-click Copy button
+    /// (uninstall recipes, recovery one-liners). Rendered as a
+    /// monospaced bordered block under the help text. Kept off `help`
+    /// because SwiftUI's Markdown subset doesn't render multi-line
+    /// code fences, and the user wanted an explicit copy affordance.
+    var copyableCommand: String? = nil
     let buildCommand: (_ values: [String: String]) -> String
 
     /// Top-level grouping shown as a Section header in the right-click menu.
