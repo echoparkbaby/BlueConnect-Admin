@@ -1288,9 +1288,24 @@ extension QuickAction {
                 fi; \
                 consoleUser=$(stat -f%Su /dev/console); \
                 [ -z "$consoleUser" -o "$consoleUser" = "root" ] && { echo "no console user — nothing to display to"; exit 1; }; \
+                # Verify largetype is actually installed on the target.
+                # It's third-party (abdusco/largetype) and not bundled
+                # by the helper installer, so a missing binary is the
+                # #1 reason "queued but nothing displays" — surface
+                # the diagnostic up-front instead of silently writing
+                # a job file that fires into the void.
+                if [ ! -x /usr/local/bin/largetype ]; then \
+                  echo "ERROR: /usr/local/bin/largetype is not installed."; \
+                  echo "Get it from https://github.com/abdusco/largetype/releases and 'install -m 755 largetype /usr/local/bin/'."; \
+                  exit 1; \
+                fi; \
+                CMD="/usr/local/bin/largetype \#(msg)\#(flags)"; \
                 JOB="$INBOX/largetype-$(uuidgen).job"; \
-                echo "/usr/local/bin/largetype \#(msg)\#(flags)" > "$JOB"; \
-                echo "Large Type queued for '$consoleUser' (job: $(basename "$JOB"))."
+                printf '%s\n' "$CMD" > "$JOB"; \
+                echo "Large Type queued for '$consoleUser' (job: $(basename "$JOB"))."; \
+                echo "Command: $CMD"; \
+                echo "If nothing appears within ~2 seconds, tail the helper log:"; \
+                echo "  ssh <host> 'tail -20 /Users/'$consoleUser'/Library/Logs/blueconnect-helper.log'"
                 """#
             }
         ),

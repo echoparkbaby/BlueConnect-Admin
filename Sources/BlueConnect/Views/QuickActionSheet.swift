@@ -361,13 +361,20 @@ struct QuickActionSheet: View {
         switch field.kind {
         case .text:
             LabeledContent(field.label) {
-                HStack(spacing: 6) {
+                HStack(alignment: .top, spacing: 6) {
                     // Empty title + explicit `prompt:` so the placeholder
                     // renders INSIDE the field, not as a trailing label
-                    // outside the rounded box.
+                    // outside the rounded box. axis: .vertical +
+                    // lineLimit(1...5) lets long inputs (Large Type
+                    // multi-line messages) wrap and grow up to five
+                    // lines instead of scrolling horizontally past the
+                    // visible width — short single-line inputs are
+                    // unaffected.
                     TextField("", text: binding,
-                              prompt: Text(verbatim: field.placeholder))
+                              prompt: Text(verbatim: field.placeholder),
+                              axis: .vertical)
                         .textFieldStyle(.roundedBorder)
+                        .lineLimit(1...5)
                         .frame(maxWidth: 280)
                     if field.dataSource == .mrLocalUsers, mrUsersLoading {
                         ProgressView().controlSize(.small)
