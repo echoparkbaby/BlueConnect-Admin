@@ -5,8 +5,8 @@ A native macOS admin client for [BlueSkyConnect](https://github.com/BlueSkyTools
 ![BlueConnect Admin screenshot](Resources/screenshot.png)
 
 > [!IMPORTANT]
-> **Upgrading from v1.2.x? Re-deploy the server-side PHP after updating the Mac app.**
-> [v1.3.0](https://github.com/echoparkbaby/BlueConnect-Admin/releases/tag/v1.3.0) ships a new endpoint (`bs_blocklist.json.php`), a new `block` / `unblock` action in `bs_host_action.json.php` (with an auto-installed `BlueSky.blocked_serials` table + BEFORE INSERT trigger that refuses re-registration of sold/transferred Macs), and an updated `blueconnect_api.php` covering seven additional MunkiReport modules — local users, network, Wi-Fi, software updates, profiles, time machine, pending installs. The Mac app upgrade alone doesn't pick up those server-side changes; you have to push the new PHP files:
+> **Upgrading from v1.2.x? Re-deploy the server-side PHP after updating the Mac app.** (Upgrading from v1.3.x is Mac-app-only — no server changes for v1.4.0.)
+> [v1.3.0](https://github.com/echoparkbaby/BlueConnect-Admin/releases/tag/v1.3.0) introduced a new `bs_blocklist.json.php` endpoint, a new `block` / `unblock` action in `bs_host_action.json.php` (with an auto-installed `BlueSky.blocked_serials` table + BEFORE INSERT trigger that refuses re-registration of sold/transferred Macs), and an updated `blueconnect_api.php` covering seven additional MunkiReport modules — local users, network, Wi-Fi, software updates, profiles, time machine, pending installs. The Mac app upgrade alone doesn't pick up those server-side changes; you have to push the new PHP files:
 >
 > ```sh
 > ./deploy-server.sh <ssh-user>@<bsc-host>
