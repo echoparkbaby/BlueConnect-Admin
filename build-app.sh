@@ -99,10 +99,29 @@ PLIST
 
 if [[ -n "$SIGN_ID" ]]; then
     echo "▶ codesign with: $SIGN_ID"
-    codesign --force --deep --options runtime --timestamp \
+    # Sign nested Mach-O binaries FIRST with hardened runtime +
+    # secure timestamp. The outer `--deep` codesign on the bundle
+    # alone doesn't propagate `--options runtime` to nested
+    # standalone executables in Resources/ (notarytool rejects
+    # them as "binary is not signed with a valid Developer ID
+    # certificate" / "no secure timestamp" / "no hardened
+    # runtime"). Sign each explicitly, then sign the outer bundle
+    # without --deep so we don't re-sign and lose those flags.
+    if [[ -f "$APP_BUNDLE/Contents/Resources/blueconnect-chat" ]]; then
+        codesign --force --options runtime --timestamp \
+            --sign "$SIGN_ID" \
+            "$APP_BUNDLE/Contents/Resources/blueconnect-chat"
+    fi
+    codesign --force --options runtime --timestamp \
+        --sign "$SIGN_ID" \
+        "$APP_BUNDLE/Contents/MacOS/$EXEC_NAME"
+    codesign --force --options runtime --timestamp \
         --sign "$SIGN_ID" "$APP_BUNDLE"
 else
     echo "▶ codesign ad-hoc (no SIGN_ID set in .env-sign)"
+    if [[ -f "$APP_BUNDLE/Contents/Resources/blueconnect-chat" ]]; then
+        codesign --force -s - "$APP_BUNDLE/Contents/Resources/blueconnect-chat" >/dev/null 2>&1 || true
+    fi
     codesign --force --deep -s - "$APP_BUNDLE" >/dev/null 2>&1 || true
 fi
 
