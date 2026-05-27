@@ -919,11 +919,14 @@ extension QuickAction {
             fields: [],
             tabLabel: "setup-gui-helper", isDestructive: true,
             help: """
-            **ONE-TIME per Mac.** Installs an Aqua-session LaunchAgent that lets BlueConnect display fullscreen text / notifications in the logged-in user's session — without NOPASSWD sudo, without granting standing root.
+            **ONE-TIME per Mac.** Installs a LaunchAgent that lets BlueConnect display chat and fullscreen notifications in the logged-in user's session without granting standing root.
 
-            **Fleet-scale alternative** (recommended for >3 Macs): deploy `BlueConnectHelper.pkg` via Munki. One sync rolls the helper to every enrolled Mac, no per-host SSH. Download: [BlueConnectHelper.pkg](https://github.com/echoparkbaby/BlueConnect-Admin/releases/latest/download/BlueConnectHelper.pkg)
+            Note: Fullscreen texts require Largetype — [github.com/abdusco/largetype](https://github.com/abdusco/largetype).
 
-            **What this Quick Action does:** opens a terminal tab, prompts you once for sudo, installs the helper script + LaunchAgent + inbox dir, and loads the agent for the current console user. After that, Large Type and Notify User dispatch through the helper with no sudo at runtime.
+            **TWO ways to install:**
+
+            1. Install pkg file **BlueConnectHelper.pkg** via Munki. Signed / Notarized: [BlueConnectHelper.pkg](https://github.com/echoparkbaby/BlueConnect-Admin/releases/latest/download/BlueConnectHelper.pkg).
+            2. Run this Quick Action per machine. It opens a terminal tab, prompts you once for sudo, installs the files, and loads the agent for the current console user.
 
             **Files installed:**
 
@@ -932,7 +935,10 @@ extension QuickAction {
             - `/Library/LaunchAgents/xyz.hellocomputer.blueconnect-helper.plist` — Aqua-session LaunchAgent
             - `/Library/Application Support/BlueConnect/inbox/` — job drop folder (world-writable)
 
-            **Uninstall:** click Copy on the box below, paste into a Terminal on the target Mac.
+            **Uninstall options:**
+
+            1. Run **Setup: Uninstall GUI Helper** from Miscellaneous.
+            2. Paste the command below into Terminal on the target Mac.
             """,
             copyableCommand: "sudo launchctl bootout gui/$(id -u $(stat -f%Su /dev/console)) /Library/LaunchAgents/xyz.hellocomputer.blueconnect-helper.plist && sudo rm /Library/LaunchAgents/xyz.hellocomputer.blueconnect-helper.plist /usr/local/bin/blueconnect-gui-helper /usr/local/bin/blueconnect-chat && sudo rm -rf '/Library/Application Support/BlueConnect'",
             buildCommand: { _ in
@@ -1242,7 +1248,7 @@ extension QuickAction {
             help: """
             Throws a full-screen big-text message in front of the user via `largetype`. Defaults: white text on translucent black, Futura font, 5-second hide.
 
-            `largetype` is a third-party binary you deploy separately to `/usr/local/bin/largetype` — source: [largetype on Homebrew](https://formulae.brew.sh/formula/largetype) (`brew install largetype`). The BlueConnect Helper itself is covered by the orange notice below.
+            `largetype` is a third-party binary you deploy separately to `/usr/local/bin/largetype` — source: [github.com/abdusco/largetype](https://github.com/abdusco/largetype). The BlueConnect Helper itself is covered by the orange notice below.
             """,
             buildCommand: { v in
                 let msg = shq(v["msg"] ?? "")
