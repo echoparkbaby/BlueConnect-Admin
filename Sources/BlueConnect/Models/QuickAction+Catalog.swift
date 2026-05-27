@@ -823,7 +823,13 @@ extension QuickAction {
                       ]), defaultValue: ""),
             ],
             tabLabel: "notify", isDestructive: false,
-            help: "Shows a macOS notification banner to whoever's at the screen. Smaller / less attention-grabbing than Large Type. Dispatches through the GUI Helper LaunchAgent — run 'Setup: Install GUI Helper (one-time)' on the Mac first if not already installed.",
+            help: """
+            Shows a macOS notification banner to whoever's at the screen. Smaller / less attention-grabbing than Large Type.
+
+            Requires the BlueConnect Helper to be installed on the target Mac. Two install paths:
+              • Per-host: run the "Setup: Install GUI Helper (one-time)" Quick Action.
+              • Fleet-scale (recommended): deploy BlueConnectHelper.pkg via Munki — https://github.com/echoparkbaby/BlueConnect-Admin/releases/latest/download/BlueConnectHelper.pkg
+            """,
             buildCommand: { v in
                 // AppleScript string literal: double-quoted, with
                 // backslash + double-quote escaped. Single quotes are
@@ -921,14 +927,18 @@ extension QuickAction {
             help: """
             ONE-TIME per Mac. Installs an Aqua-session LaunchAgent that lets BlueConnect display fullscreen text / notifications in the logged-in user's session — without NOPASSWD sudo, without granting standing root.
 
-            What you'll see: a terminal tab opens, sudo prompts for your password ONCE (type it in the tab), the helper script + LaunchAgent plist + inbox directory get installed, and the agent loads for the current console user. After that, Large Type and Notify User dispatch through the helper (no sudo at runtime).
+            FLEET-SCALE ALTERNATIVE (recommended for >3 Macs): download BlueConnectHelper.pkg from the latest GitHub release and deploy via Munki. One sync rolls the helper to every enrolled Mac, no per-host SSH dance.
+              https://github.com/echoparkbaby/BlueConnect-Admin/releases/latest/download/BlueConnectHelper.pkg
+
+            What you'll see when running this Quick Action: a terminal tab opens, sudo prompts for your password ONCE (type it in the tab), the helper script + LaunchAgent plist + inbox directory get installed, and the agent loads for the current console user. After that, Large Type and Notify User dispatch through the helper (no sudo at runtime).
 
             Files installed:
               /usr/local/bin/blueconnect-gui-helper                                            (worker script)
+              /usr/local/bin/blueconnect-chat                                                  (chat client, universal binary)
               /Library/LaunchAgents/xyz.hellocomputer.blueconnect-helper.plist                 (Aqua-session LaunchAgent)
               /Library/Application Support/BlueConnect/inbox/                                  (job drop folder, world-writable)
 
-            Uninstall: `sudo launchctl bootout gui/$(id -u $(stat -f%Su /dev/console)) /Library/LaunchAgents/xyz.hellocomputer.blueconnect-helper.plist && sudo rm /Library/LaunchAgents/xyz.hellocomputer.blueconnect-helper.plist /usr/local/bin/blueconnect-gui-helper && sudo rm -rf /Library/Application\\ Support/BlueConnect`.
+            Uninstall: `sudo launchctl bootout gui/$(id -u $(stat -f%Su /dev/console)) /Library/LaunchAgents/xyz.hellocomputer.blueconnect-helper.plist && sudo rm /Library/LaunchAgents/xyz.hellocomputer.blueconnect-helper.plist /usr/local/bin/blueconnect-gui-helper /usr/local/bin/blueconnect-chat && sudo rm -rf /Library/Application\\ Support/BlueConnect`.
             """,
             buildCommand: { _ in
                 // The helper script + LaunchAgent plist are base64-
@@ -1176,7 +1186,15 @@ extension QuickAction {
                       ]), defaultValue: "5"),
             ],
             tabLabel: "largetype", isDestructive: false,
-            help: "Throws a full-screen big-text message in front of the user via `largetype` (installed at /usr/local/bin/largetype). Defaults: white text on translucent black, Futura font, 5-second hide.",
+            help: """
+            Throws a full-screen big-text message in front of the user via `largetype` (installed at /usr/local/bin/largetype). Defaults: white text on translucent black, Futura font, 5-second hide.
+
+            Requires the BlueConnect Helper to be installed on the target Mac. Two install paths:
+              • Per-host: run the "Setup: Install GUI Helper (one-time)" Quick Action.
+              • Fleet-scale (recommended): deploy BlueConnectHelper.pkg via Munki — https://github.com/echoparkbaby/BlueConnect-Admin/releases/latest/download/BlueConnectHelper.pkg
+
+            Note: `largetype` itself is a third-party binary, not bundled in BlueConnectHelper.pkg. It needs to exist at /usr/local/bin/largetype on the target Mac (deploy separately via Munki or your existing fleet-management tool).
+            """,
             buildCommand: { v in
                 let msg = shq(v["msg"] ?? "")
                 let color   = (v["color"]   ?? "").trimmingCharacters(in: .whitespaces)

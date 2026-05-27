@@ -27,7 +27,7 @@ struct ScannedTableWindow: View {
     /// over the other monospace fields because it's the primary
     /// identifier most operators eyeball.
     private var smallSize: CGFloat { CGFloat(11 * fontScale) }
-    private var ipSize: CGFloat    { CGFloat(13 * fontScale) }
+    private var ipSize: CGFloat    { CGFloat(12 * fontScale) }
     private var rowSize: CGFloat   { CGFloat(12 * fontScale) }
 
     /// Flattened row type combining LocalService probe data + UniFi
@@ -106,27 +106,20 @@ struct ScannedTableWindow: View {
             }
         }
         .frame(minWidth: 600, idealWidth: 1100, minHeight: 400, idealHeight: 900)
-        // Hidden font-scale shortcuts. SwiftUI dispatches
-        // keyboardShortcut bindings to whichever button is in the
-        // key window — so these only fire when the Scanned Table
-        // window is focused, never colliding with anywhere else
-        // ⌘+ / ⌘- might mean something.
+        // Hidden font-scale shortcuts. Bind ⌘=, ⌘+, ⌘-, ⌘0 each on
+        // a SEPARATE .background button — bundling all three under a
+        // Group with a zero frame caused SwiftUI to drop them from
+        // key dispatch. Per-button .background mirrors the working
+        // ⌘F pattern in DetachedTerminalView.
         //
-        // The `=` key equivalent is what macOS sends for ⌘+ on a
-        // US keyboard; binding to it gives the natural "press ⌘
-        // and the plus key" feel without forcing Shift.
-        .background(
-            Group {
-                Button("Zoom in")  { bumpScale(by: 0.1) }
-                    .keyboardShortcut("=", modifiers: [.command])
-                Button("Zoom out") { bumpScale(by: -0.1) }
-                    .keyboardShortcut("-", modifiers: [.command])
-                Button("Reset zoom") { fontScale = 1.0 }
-                    .keyboardShortcut("0", modifiers: [.command])
-            }
-            .opacity(0).frame(width: 0, height: 0)
-            .accessibilityHidden(true)
-        )
+        // Both `=` and `+` are bound for "zoom in" because macOS
+        // treats the unshifted `=` key as ⌘+ on US keyboards but
+        // explicit ⌘⇧+ won't hit that binding — registering both
+        // covers either way the operator types it.
+        .background(zoomInButton(key: "="))
+        .background(zoomInButton(key: "+"))
+        .background(zoomOutButton)
+        .background(zoomResetButton)
         .task { await runScan() }
         .onAppear {
             // Restore persisted column order/visibility on first
@@ -342,6 +335,27 @@ struct ScannedTableWindow: View {
     private func bumpScale(by delta: Double) {
         let next = (fontScale + delta).rounded(toPlaces: 2)
         fontScale = min(max(next, 0.7), 1.6)
+    }
+
+    private func zoomInButton(key: KeyEquivalent) -> some View {
+        Button("Zoom in") { bumpScale(by: 0.1) }
+            .keyboardShortcut(key, modifiers: [.command])
+            .opacity(0).frame(width: 0, height: 0)
+            .accessibilityHidden(true)
+    }
+
+    private var zoomOutButton: some View {
+        Button("Zoom out") { bumpScale(by: -0.1) }
+            .keyboardShortcut("-", modifiers: [.command])
+            .opacity(0).frame(width: 0, height: 0)
+            .accessibilityHidden(true)
+    }
+
+    private var zoomResetButton: some View {
+        Button("Reset zoom") { fontScale = 1.0 }
+            .keyboardShortcut("0", modifiers: [.command])
+            .opacity(0).frame(width: 0, height: 0)
+            .accessibilityHidden(true)
     }
 
     private static func ipSortKey(_ ip: String) -> UInt32 {
