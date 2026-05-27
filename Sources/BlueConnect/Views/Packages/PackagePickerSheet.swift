@@ -260,9 +260,10 @@ struct PackagePickerSheet: View {
                 commit(pkg)
             }
         } message: { pkg in
-            Text(pkg.description?.isEmpty == false
-                 ? pkg.description!
-                 : "This will run an uninstall or destructive command on \(targetSummary). Continue?")
+            let desc = pkg.description?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            Text(desc.isEmpty
+                 ? "This will run an uninstall or destructive command on \(targetSummary). Continue?"
+                 : desc)
         }
     }
 
