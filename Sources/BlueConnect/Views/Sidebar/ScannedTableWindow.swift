@@ -254,12 +254,15 @@ struct ScannedTableWindow: View {
             .customizationID("vnc")
             TableColumn("Type", value: \.typeLabel) { (r: Row) in
                 if !r.typeLabel.isEmpty {
-                    // Both image and text share the same .system(size:)
-                    // so the SF Symbol resolves to a font-metric baseline
-                    // that aligns with the text — previously the icon
-                    // defaulted to the row's intrinsic font and sat off
-                    // the text's optical baseline.
-                    HStack(spacing: 4) {
+                    // .firstTextBaseline anchors the SF Symbol's baseline
+                    // to the Text's first-line baseline. Default HStack
+                    // alignment (.center) centered the Image's *bounds*
+                    // against the Text's bounds, which made SF Symbols
+                    // sit slightly above the text optical centerline
+                    // (their intrinsic padding doesn't match a glyph's
+                    // x-height). Baseline alignment is the canonical
+                    // SwiftUI pattern for icon+text rows.
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
                         Image(systemName: r.isWired ? "cable.connector" : "wifi")
                             .font(.system(size: smallSize))
                             .foregroundStyle(r.isWired ? .green : .blue)
