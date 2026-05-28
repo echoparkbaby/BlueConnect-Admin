@@ -23,9 +23,14 @@ actor BlueSkyAPI {
         username: String,
         password: String
     ) async throws -> [String: Any] {
+        // Update BOTH hostname AND sharingname. BSC keeps them as
+        // separate columns and HostnameCell renders the bold top line
+        // from `hostname` and a gray subtitle from `sharingname` IF
+        // they differ — leaving sharingname stale produces the
+        // confusing "acorn / maple" two-line display the user saw.
         try await updateHost(
             blueskyid: blueskyid,
-            fields: ["hostname": newHostname],
+            fields: ["hostname": newHostname, "sharingname": newHostname],
             apiURL: apiURL,
             username: username,
             password: password
