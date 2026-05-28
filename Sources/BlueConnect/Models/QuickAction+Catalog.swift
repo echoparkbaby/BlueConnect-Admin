@@ -718,9 +718,34 @@ extension QuickAction {
             buildCommand: { _ in
                 #"""
                 CONSOLE_USER=$(stat -f%Su /dev/console); \
+                CONSOLE_UID=$(id -u "$CONSOLE_USER"); \
                 USER_HOME=$(eval echo ~$CONSOLE_USER); \
-                osascript -e 'tell application "Mail" to quit' 2>/dev/null || true; \
-                sleep 2; \
+                # Quit Mail gracefully — but the osascript MUST run
+                # inside the console user's GUI launchd session. The
+                # previous script invoked osascript as the SSH user
+                # (ladmin), and Apple Events from a non-GUI session
+                # can't reach an app owned by another user, so the
+                # tell-to-quit silently no-op'd. Mail kept running
+                # and the index files got renamed under its open
+                # SQLite handles.
+                echo "▶ asking Mail.app to quit in $CONSOLE_USER's session…"; \
+                sudo -u "$CONSOLE_USER" launchctl asuser "$CONSOLE_UID" osascript -e 'tell application "Mail" to quit' 2>/dev/null || true; \
+                # Poll for Mail's PID to disappear (up to 8s). Some
+                # mailboxes take a couple seconds to flush state on
+                # close. Renaming the index while the handle is open
+                # is what corrupted the rebuild last time.
+                for i in 1 2 3 4 5 6 7 8; do \
+                  pgrep -u "$CONSOLE_USER" -x Mail >/dev/null 2>&1 || break; \
+                  sleep 1; \
+                done; \
+                # Belt and suspenders — force-quit if Mail ignored the
+                # graceful request (background sync, modal sheet, etc).
+                if pgrep -u "$CONSOLE_USER" -x Mail >/dev/null 2>&1; then \
+                  echo "▶ Mail didn't honor the graceful quit; force-killing…"; \
+                  pkill -u "$CONSOLE_USER" -x Mail >/dev/null 2>&1 || true; \
+                  sleep 1; \
+                fi; \
+                echo "▶ Mail confirmed exited"; \
                 # `~/Library` is mode 700 on the console user's home,
                 # so an ssh session as ladmin can't list inside it.
                 # sudo -u <consoleUser> for every read into that
