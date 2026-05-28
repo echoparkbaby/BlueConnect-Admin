@@ -727,24 +727,35 @@ extension QuickAction {
                 # tree — the previous version silently fell into the
                 # "No Mail data found" branch even when V10/ existed,
                 # because the host-side `ls` got permission-denied.
-                LATEST_MAIL=$(sudo -u "$CONSOLE_USER" sh -c "ls -td \"$USER_HOME/Library/Mail/V\"*/ 2>/dev/null | head -1"); \
-                if [ -n "$LATEST_MAIL" ]; then \
+                # Walk EVERY V* directory rather than guess "latest" —
+                # old V7 dirs can have newer mtimes than the in-use
+                # V10/V11 from leftover filesystem operations, so
+                # `ls -td | head -1` was picking a stale dir with no
+                # Envelope Index in it and reporting "already rebuilt".
+                # Iterating every V* is harmless: each gets recursively
+                # scanned for "Envelope Index*" files, found ones get
+                # the timestamped suffix, missing ones are no-op.
+                V_DIRS=$(sudo -u "$CONSOLE_USER" sh -c "ls -1d \"$USER_HOME/Library/Mail/V\"*/ 2>/dev/null"); \
+                if [ -n "$V_DIRS" ]; then \
                   TS=$(date +%Y%m%d-%H%M%S); \
-                  # Recursive find (still as the console user) instead
-                  # of a hardcoded MailData/ glob — Mail versions vary
-                  # in whether the index sits under MailData/ or under
-                  # a per-account UUID subfolder. `-name 'Envelope
-                  # Index*'` matches "Envelope Index", "-shm", "-wal".
-                  # Capture into a var so we can detect empty without
-                  # process substitution (not POSIX, bash-only).
-                  FILES=$(sudo -u "$CONSOLE_USER" find "$LATEST_MAIL" -type f -name "Envelope Index*" 2>/dev/null); \
-                  if [ -n "$FILES" ]; then \
-                    echo "$FILES" | while IFS= read -r f; do \
-                      sudo -u "$CONSOLE_USER" mv "$f" "${f}.broken-${TS}" && echo "Renamed: $f"; \
-                    done; \
-                    echo "Done. Have $CONSOLE_USER reopen Mail to rebuild."; \
+                  RENAMED_TOTAL=0; \
+                  RENAMED_TOTAL_FILE=$(mktemp); \
+                  echo 0 > "$RENAMED_TOTAL_FILE"; \
+                  echo "$V_DIRS" | while IFS= read -r v_dir; do \
+                    FILES=$(sudo -u "$CONSOLE_USER" find "$v_dir" -type f -name "Envelope Index*" 2>/dev/null); \
+                    if [ -n "$FILES" ]; then \
+                      echo "$FILES" | while IFS= read -r f; do \
+                        sudo -u "$CONSOLE_USER" mv "$f" "${f}.broken-${TS}" && echo "Renamed: $f" && echo $(($(cat "$RENAMED_TOTAL_FILE")+1)) > "$RENAMED_TOTAL_FILE"; \
+                      done; \
+                    fi; \
+                  done; \
+                  RENAMED_TOTAL=$(cat "$RENAMED_TOTAL_FILE"); \
+                  rm -f "$RENAMED_TOTAL_FILE"; \
+                  if [ "$RENAMED_TOTAL" -gt 0 ]; then \
+                    echo "Done — renamed $RENAMED_TOTAL Envelope Index file(s). Have $CONSOLE_USER reopen Mail to rebuild."; \
                   else \
-                    echo "No Envelope Index files found under $LATEST_MAIL — already rebuilt, or Mail data is in a non-standard location."; \
+                    echo "No Envelope Index files found in any of: $(echo "$V_DIRS" | tr '\n' ' ')"; \
+                    echo "Either Mail's index has already been rebuilt, or this Mac stores Mail data in a non-standard location."; \
                   fi; \
                 else \
                   echo "No Mail data found for $CONSOLE_USER under $USER_HOME/Library/Mail. Confirm Mail.app has been launched at least once on this Mac."; \
