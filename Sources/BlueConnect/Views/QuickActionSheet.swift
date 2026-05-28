@@ -10,14 +10,20 @@ struct QuickActionSheet: View {
     /// same sheet against a Bonjour/Tailscale peer name.
     let targetName: String
     let action: QuickAction
-    let onRun: (String) -> Void  // receives the fully-built shell command
+    /// Receives the fully-built shell command plus the raw `values`
+    /// dict the user filled in. Most receivers ignore `values` and
+    /// just dispatch the command; the setHostname path uses it to
+    /// also push the new name to BSC's `bs_host_update.json.php` so
+    /// the server-side record matches what scutil now reports — the
+    /// BSC agent only POSTs hostname during initial registration, so
+    /// without this side-channel the DB stays stale forever.
+    let onRun: (String, [String: String]) -> Void
     /// Optional: when non-nil, the sheet renders a secondary "Run in
-    /// existing tab" button alongside the primary Run button. Clicking
-    /// it calls this closure with the built command; the receiver is
-    /// expected to write the command into the already-open shell
-    /// session for the target host instead of spawning a new SSH tab.
-    /// nil → button is hidden (no reusable session, or feature N/A).
-    let onRunInExistingTab: ((String) -> Void)?
+    /// existing tab" button alongside the primary Run button. Same
+    /// signature as `onRun` — receiver writes the command into the
+    /// already-open shell session for the target host instead of
+    /// spawning a new SSH tab. nil → button is hidden.
+    let onRunInExistingTab: ((String, [String: String]) -> Void)?
     /// Display name for the existing session — shows up in the
     /// secondary button label and a small note above it so the
     /// operator can verify which tab they're about to inject into.
@@ -31,8 +37,8 @@ struct QuickActionSheet: View {
     init(host: BlueSkyHost,
          action: QuickAction,
          existingTabTitle: String? = nil,
-         onRun: @escaping (String) -> Void,
-         onRunInExistingTab: ((String) -> Void)? = nil) {
+         onRun: @escaping (String, [String: String]) -> Void,
+         onRunInExistingTab: ((String, [String: String]) -> Void)? = nil) {
         self.targetName = host.displayName
         self.action = action
         self.onRun = onRun
@@ -44,7 +50,7 @@ struct QuickActionSheet: View {
     /// Init used by the local-network sidebar's Quick Actions submenu.
     init(targetName: String,
          action: QuickAction,
-         onRun: @escaping (String) -> Void) {
+         onRun: @escaping (String, [String: String]) -> Void) {
         self.targetName = targetName
         self.action = action
         self.onRun = onRun
@@ -708,7 +714,7 @@ struct QuickActionSheet: View {
                         QuickActionDefaults.save(actionID: action.id,
                                                  values: values,
                                                  fields: action.fields)
-                        onExisting(action.buildCommand(values))
+                        onExisting(action.buildCommand(values), values)
                         dismiss()
                     }
                     .disabled(!hasRequiredValues)
@@ -718,7 +724,7 @@ struct QuickActionSheet: View {
                     QuickActionDefaults.save(actionID: action.id,
                                              values: values,
                                              fields: action.fields)
-                    onRun(action.buildCommand(values))
+                    onRun(action.buildCommand(values), values)
                     dismiss()
                 }
                 .buttonStyle(.borderedProminent)

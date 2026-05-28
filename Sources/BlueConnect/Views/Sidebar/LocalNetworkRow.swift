@@ -182,7 +182,7 @@ struct LocalNetworkRow: View {
         // Quick Action sheet — reuses the existing field-driven sheet
         // (header now targets a generic name, not just BlueSkyHost).
         .sheet(item: $quickActionPending) { action in
-            QuickActionSheet(targetName: service.name, action: action) { command in
+            QuickActionSheet(targetName: service.name, action: action) { command, _ in
                 quickActionStore.noteUsed(action.id)
                 runRemoteCommand(command, label: action.tabLabel)
             }

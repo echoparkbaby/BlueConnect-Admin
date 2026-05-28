@@ -483,22 +483,32 @@ struct ContentView: View {
                 host: target.host,
                 action: target.action,
                 existingTabTitle: existing?.title,
-                onRun: { command in
+                onRun: { command, values in
                     runQuickAction(host: target.host,
                                    action: target.action,
-                                   command: command)
+                                   command: command,
+                                   values: values)
                 },
                 onRunInExistingTab: existing.map { session in
-                    { command in
+                    { command, values in
                         // Append a trailing newline so the remote shell
                         // processes the line. quickActionStore.noteUsed
                         // mirrors the analytics side-effect in
                         // runQuickAction so the usage counter ticks
-                        // even on the reuse path.
+                        // even on the reuse path. Also fire the BSC
+                        // hostname sync if this is a setHostname run —
+                        // the BSC agent doesn't re-report hostname
+                        // after initial registration, so we POST to
+                        // bs_host_update.json.php directly to keep the
+                        // server-side record current.
                         quickActionStore.noteUsed(target.action.id)
                         recents.recordConnect(blueskyid: target.host.blueskyid)
                         terminals.activeSessionID = session.id
                         session.sendInput(command + "\n")
+                        if target.action.id == "setHostname",
+                           let newName = values["name"], !newName.isEmpty {
+                            runRename(host: target.host, newHostname: newName)
+                        }
                     }
                 }
             )
@@ -1350,10 +1360,25 @@ struct ContentView: View {
 
     /// Run a `QuickAction`'s built command on the host via the standard
     /// BSC ssh path. Output streams into a terminal tab named with the
-    /// action's `tabLabel`.
-    private func runQuickAction(host: BlueSkyHost, action: QuickAction, command: String) {
+    /// action's `tabLabel`. `values` is the raw form-input dict; most
+    /// actions don't need it, but `setHostname` uses it to also POST
+    /// the new name to BSC's `bs_host_update.json.php` (the BSC agent
+    /// only reports hostname during initial registration, so without
+    /// this side-channel BSC stays stale even after `scutil` succeeds).
+    private func runQuickAction(host: BlueSkyHost, action: QuickAction, command: String, values: [String: String] = [:]) {
         recents.recordConnect(blueskyid: host.blueskyid)
         quickActionStore.noteUsed(action.id)
+        // Set Hostname → also update BSC's record so the display name
+        // in BlueConnect Admin matches what the Mac now reports. Fires
+        // independently of the SSH command — if scutil fails on the
+        // Mac, BSC still gets updated and the user sees the new name;
+        // if BSC fails, the Mac is still renamed and the next refresh
+        // surfaces the mismatch via Activity Log.
+        if action.id == "setHostname",
+           let newName = values["name"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !newName.isEmpty {
+            runRename(host: host, newHostname: newName)
+        }
         let svc = ConnectionService(
             server: settings.serverFqdn,
             adminKeyPath: settings.expandedKeyPath,
