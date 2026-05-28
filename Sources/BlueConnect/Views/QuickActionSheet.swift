@@ -239,12 +239,45 @@ struct QuickActionSheet: View {
             .padding(16)
         } else {
             Form {
-                ForEach(action.fields) { field in
-                    fieldRow(field)
+                ForEach(Array(pairedFieldRows.enumerated()), id: \.offset) { _, row in
+                    if row.count == 2 {
+                        // Two consecutive pickers → side by side. Saves
+                        // vertical space in actions like Large Type that
+                        // have four configurable choices the operator
+                        // wants to see at a glance.
+                        HStack(alignment: .firstTextBaseline, spacing: 16) {
+                            fieldRow(row[0])
+                            fieldRow(row[1])
+                        }
+                    } else {
+                        fieldRow(row[0])
+                    }
                 }
             }
             .formStyle(.grouped)
         }
+    }
+
+    /// Group consecutive `.picker` fields into pairs so the form can
+    /// render two-up rows; everything else stays full-width. Text and
+    /// secure fields break the pairing — they always render solo.
+    private var pairedFieldRows: [[QuickAction.Field]] {
+        var rows: [[QuickAction.Field]] = []
+        var i = 0
+        let fields = action.fields
+        while i < fields.count {
+            let cur = fields[i]
+            if case .picker = cur.kind,
+               i + 1 < fields.count,
+               case .picker = fields[i + 1].kind {
+                rows.append([cur, fields[i + 1]])
+                i += 2
+            } else {
+                rows.append([cur])
+                i += 1
+            }
+        }
+        return rows
     }
 
     @ViewBuilder
