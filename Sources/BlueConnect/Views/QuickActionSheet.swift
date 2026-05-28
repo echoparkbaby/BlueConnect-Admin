@@ -61,13 +61,13 @@ struct QuickActionSheet: View {
                                 scope: values["scope"] ?? "all")
                     .padding(.horizontal, 16).padding(.vertical, 10)
             }
-            // Collapsed-by-default helper-install reminder for Large
-            // Type / Notify User. Slotted below the form (so the
-            // parameter inputs stay above the fold) and above the
-            // command preview.
-            helperHintDisclosure
-            Divider()
-            preview
+            // Single collapsed-by-default "Details" chevron carrying
+            // BOTH the helper-install reminder (when applicable) and
+            // the "Will run on …" command preview. Most operators
+            // don't need to read either every time they click Run;
+            // tucking them behind a chevron keeps the sheet compact
+            // while leaving the diagnostics one click away.
+            detailsDisclosure
             Divider()
             footer
         }
@@ -144,16 +144,16 @@ struct QuickActionSheet: View {
         .padding(.horizontal, 16).padding(.vertical, 12)
     }
 
-    /// Tucked under a collapsed DisclosureGroup below the parameter
-    /// form. Used by Large Type / Notify User to surface the helper
-    /// install paths without taking up sheet real estate by default.
-    /// Closed-by-default because the operator usually has the helper
-    /// installed already and doesn't need to read it every time.
+    /// Single collapsed-by-default disclosure carrying everything an
+    /// operator might want to inspect before clicking Run — the
+    /// helper install hint (when applicable) and the full "Will run
+    /// on …" command preview. The disclosure stays out of the way
+    /// for routine runs; expanding it reveals diagnostics.
     @ViewBuilder
-    private var helperHintDisclosure: some View {
-        if Self.needsGuiHelperHint(actionID: action.id) {
-            DisclosureGroup {
-                VStack(alignment: .leading, spacing: 6) {
+    private var detailsDisclosure: some View {
+        DisclosureGroup {
+            VStack(alignment: .leading, spacing: 10) {
+                if Self.needsGuiHelperHint(actionID: action.id) {
                     HStack(alignment: .top, spacing: 6) {
                         Image(systemName: "wand.and.rays")
                             .foregroundStyle(.orange)
@@ -163,18 +163,19 @@ struct QuickActionSheet: View {
                             .fixedSize(horizontal: false, vertical: true)
                             .textSelection(.enabled)
                     }
+                    .padding(8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.orange.opacity(0.08))
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
                 }
-                .padding(8)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.orange.opacity(0.08))
-                .clipShape(RoundedRectangle(cornerRadius: 6))
-            } label: {
-                Label("Helper install details", systemImage: "wand.and.rays")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                preview
             }
-            .padding(.horizontal, 16).padding(.vertical, 8)
+        } label: {
+            Label("Details", systemImage: "doc.text.magnifyingglass")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
+        .padding(.horizontal, 16).padding(.vertical, 8)
     }
 
     /// Set of action IDs whose runtime dispatch goes through the GUI
@@ -489,7 +490,9 @@ struct QuickActionSheet: View {
             .contentShape(Rectangle())
             .onTapGesture { copyCommandToPasteboard() }
         }
-        .padding(.horizontal, 16).padding(.vertical, 8)
+        // Outer padding intentionally absent — `preview` is now
+        // rendered inside `detailsDisclosure` which provides its own
+        // .padding(.horizontal, 16).padding(.vertical, 8).
     }
 
     /// Writes a human-readable form of the command to the clipboard
