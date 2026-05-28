@@ -721,16 +721,33 @@ extension QuickAction {
                 USER_HOME=$(eval echo ~$CONSOLE_USER); \
                 osascript -e 'tell application "Mail" to quit' 2>/dev/null || true; \
                 sleep 2; \
-                LATEST_MAIL=$(ls -td "$USER_HOME/Library/Mail/V"*/ 2>/dev/null | head -1); \
+                # `~/Library` is mode 700 on the console user's home,
+                # so an ssh session as ladmin can't list inside it.
+                # sudo -u <consoleUser> for every read into that
+                # tree — the previous version silently fell into the
+                # "No Mail data found" branch even when V10/ existed,
+                # because the host-side `ls` got permission-denied.
+                LATEST_MAIL=$(sudo -u "$CONSOLE_USER" sh -c "ls -td \"$USER_HOME/Library/Mail/V\"*/ 2>/dev/null | head -1"); \
                 if [ -n "$LATEST_MAIL" ]; then \
                   TS=$(date +%Y%m%d-%H%M%S); \
-                  shopt -s nullglob 2>/dev/null || true; \
-                  for f in "${LATEST_MAIL}MailData/Envelope Index"*; do \
-                    [ -e "$f" ] && sudo -u "$CONSOLE_USER" mv "$f" "${f}.broken-${TS}" && echo "Renamed: $f"; \
-                  done; \
-                  echo "Done. Have $CONSOLE_USER reopen Mail to rebuild."; \
+                  # Recursive find (still as the console user) instead
+                  # of a hardcoded MailData/ glob — Mail versions vary
+                  # in whether the index sits under MailData/ or under
+                  # a per-account UUID subfolder. `-name 'Envelope
+                  # Index*'` matches "Envelope Index", "-shm", "-wal".
+                  # Capture into a var so we can detect empty without
+                  # process substitution (not POSIX, bash-only).
+                  FILES=$(sudo -u "$CONSOLE_USER" find "$LATEST_MAIL" -type f -name "Envelope Index*" 2>/dev/null); \
+                  if [ -n "$FILES" ]; then \
+                    echo "$FILES" | while IFS= read -r f; do \
+                      sudo -u "$CONSOLE_USER" mv "$f" "${f}.broken-${TS}" && echo "Renamed: $f"; \
+                    done; \
+                    echo "Done. Have $CONSOLE_USER reopen Mail to rebuild."; \
+                  else \
+                    echo "No Envelope Index files found under $LATEST_MAIL — already rebuilt, or Mail data is in a non-standard location."; \
+                  fi; \
                 else \
-                  echo "No Mail data found for $CONSOLE_USER"; \
+                  echo "No Mail data found for $CONSOLE_USER under $USER_HOME/Library/Mail. Confirm Mail.app has been launched at least once on this Mac."; \
                 fi
                 """#
             }
