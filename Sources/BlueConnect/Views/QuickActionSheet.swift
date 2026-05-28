@@ -144,16 +144,16 @@ struct QuickActionSheet: View {
         .padding(.horizontal, 16).padding(.vertical, 12)
     }
 
-    /// Single collapsed-by-default disclosure carrying everything an
-    /// operator might want to inspect before clicking Run — the
-    /// helper install hint (when applicable) and the full "Will run
-    /// on …" command preview. The disclosure stays out of the way
-    /// for routine runs; expanding it reveals diagnostics.
+    /// Two collapsed-by-default disclosures: helper requirements
+    /// (only for actions that need it) and the command preview.
+    /// Stacked tightly so they feel like a single inspector area but
+    /// labeled distinctly so the operator knows exactly what's
+    /// inside each one without expanding.
     @ViewBuilder
     private var detailsDisclosure: some View {
-        DisclosureGroup {
-            VStack(alignment: .leading, spacing: 10) {
-                if Self.needsGuiHelperHint(actionID: action.id) {
+        VStack(alignment: .leading, spacing: 4) {
+            if Self.needsGuiHelperHint(actionID: action.id) {
+                DisclosureGroup {
                     HStack(alignment: .top, spacing: 6) {
                         Image(systemName: "wand.and.rays")
                             .foregroundStyle(.orange)
@@ -167,15 +167,51 @@ struct QuickActionSheet: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(Color.orange.opacity(0.08))
                     .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .padding(.top, 4)
+                } label: {
+                    Label("Helper requirements", systemImage: "wand.and.rays")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-                preview
             }
-        } label: {
-            Label("Details", systemImage: "doc.text.magnifyingglass")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            DisclosureGroup {
+                preview
+                    .padding(.top, 4)
+            } label: {
+                // Show the first ~70 chars of the command inline so
+                // the operator can see WHAT runs without expanding.
+                // Truncation keeps the label single-line; the full
+                // command is one click away.
+                HStack(spacing: 6) {
+                    Label("Preview command", systemImage: "terminal")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(previewSummary)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+            }
         }
         .padding(.horizontal, 16).padding(.vertical, 8)
+    }
+
+    /// First line / first ~70 chars of the command, trimmed of leading
+    /// `set -e;`/`set +H;` noise. Used as the inline summary on the
+    /// collapsed Preview-command chevron so the operator gets a hint
+    /// of what's about to run without expanding the disclosure.
+    private var previewSummary: String {
+        let raw = previewCommand
+            .replacingOccurrences(of: "\\\n", with: " ")
+            .replacingOccurrences(of: "\n", with: " ")
+        // Drop common leading set-shell noise so the summary starts
+        // with the action's actual work.
+        var s = raw
+        for prefix in ["set +H; ", "set -e; "] {
+            if s.hasPrefix(prefix) { s.removeFirst(prefix.count) }
+        }
+        return String(s.prefix(70))
     }
 
     /// Set of action IDs whose runtime dispatch goes through the GUI
@@ -242,13 +278,20 @@ struct QuickActionSheet: View {
             Form {
                 ForEach(Array(pairedFieldRows.enumerated()), id: \.offset) { _, row in
                     if row.count == 2 {
-                        // Two consecutive pickers → side by side. Saves
-                        // vertical space in actions like Large Type that
-                        // have four configurable choices the operator
-                        // wants to see at a glance.
-                        HStack(alignment: .firstTextBaseline, spacing: 16) {
-                            fieldRow(row[0])
-                            fieldRow(row[1])
+                        // Two consecutive pickers → side by side via
+                        // Grid so the two label columns share a fixed
+                        // leading column width. HStack(.firstTextBaseline)
+                        // let SwiftUI pick column widths based on label
+                        // length, making short+long label pairs visually
+                        // ragged. Grid pins both labels to the same
+                        // leading edge.
+                        Grid(alignment: .leading,
+                             horizontalSpacing: 16,
+                             verticalSpacing: 0) {
+                            GridRow {
+                                fieldRow(row[0])
+                                fieldRow(row[1])
+                            }
                         }
                     } else {
                         fieldRow(row[0])
