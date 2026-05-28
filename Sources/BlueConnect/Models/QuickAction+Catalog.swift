@@ -120,7 +120,11 @@ extension QuickAction {
             label: "FileVault: remove user from unlock list…",
             category: .fileVault, icon: "person.fill.xmark",
             fields: [.init(id: "user", label: "Short name",
-                           placeholder: "shortname", kind: .text)],
+                           placeholder: "shortname", kind: .text,
+                           // MunkiReport poll: dropdown of users on this
+                           // Mac. Falls back to plain text input if MR
+                           // isn't configured for the host.
+                           dataSource: .mrLocalUsers)],
             tabLabel: "fv-remove-user", isDestructive: true,
             help: "Removes a user from the list of accounts that can unlock the disk at boot. The account itself is not deleted — they just lose the ability to enter their password at the FileVault prompt.",
             buildCommand: { v in
@@ -135,7 +139,8 @@ extension QuickAction {
             icon: "eye.slash",
             fields: [
                 .init(id: "user", label: "Short name",
-                      placeholder: "shortname", kind: .text),
+                      placeholder: "shortname", kind: .text,
+                      dataSource: .mrLocalUsers),
                 .init(id: "mode", label: "Action",
                       placeholder: "", kind: .picker([
                         .init(label: "Hide from login window", value: "hide"),
@@ -196,7 +201,8 @@ extension QuickAction {
             id: "deleteUser", label: "Delete User…",
             category: .userAccounts,
             icon: "person.fill.xmark",
-            fields: [.init(id: "user", label: "Short name", placeholder: "shortname", kind: .text)],
+            fields: [.init(id: "user", label: "Short name", placeholder: "shortname", kind: .text,
+                           dataSource: .mrLocalUsers)],
             tabLabel: "delete-user", isDestructive: true,
             buildCommand: { v in
                 "sudo sysadminctl -deleteUser \(shq(v["user"] ?? ""))"
@@ -209,7 +215,8 @@ extension QuickAction {
             label: "Secure Token Status…",
             category: .secureTokens,
             icon: "key",
-            fields: [.init(id: "user", label: "Short name", placeholder: "shortname", kind: .text)],
+            fields: [.init(id: "user", label: "Short name", placeholder: "shortname", kind: .text,
+                           dataSource: .mrLocalUsers)],
             tabLabel: "token-status", isDestructive: false,
             buildCommand: { v in
                 let u = shq(v["user"] ?? "")

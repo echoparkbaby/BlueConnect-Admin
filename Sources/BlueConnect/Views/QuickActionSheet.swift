@@ -349,9 +349,11 @@ struct QuickActionSheet: View {
             }
             .labelsHidden()
             .pickerStyle(.menu)
-            // No .frame(maxWidth: .infinity) — let the Picker size
-            // itself to content. Stretching forced SwiftUI to think
-            // the cell was taller than it needed to be.
+            // Min width keeps the dropdown chevron + selection text
+            // visible — single-word options like "Read" or "List"
+            // were collapsing the menu to a tiny invisible chevron
+            // without this floor.
+            .frame(minWidth: 140)
         default:
             fieldRow(field)
         }
@@ -535,9 +537,9 @@ struct QuickActionSheet: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         case .picker(let options):
-            // Single (unpaired) picker — label above, picker below at
-            // full width. Paired pickers go through `pickerCell`
-            // which uses the same label-above layout for consistency.
+            // Single (unpaired) picker — label above, picker below.
+            // minWidth: 140 so single-word selections don't collapse
+            // the dropdown to an invisible chevron.
             VStack(alignment: .leading, spacing: 4) {
                 Text(field.label)
                     .font(.caption)
@@ -549,7 +551,7 @@ struct QuickActionSheet: View {
                 }
                 .labelsHidden()
                 .pickerStyle(.menu)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(minWidth: 140)
             }
         }
     }

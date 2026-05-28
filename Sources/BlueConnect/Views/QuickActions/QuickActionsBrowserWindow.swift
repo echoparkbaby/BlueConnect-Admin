@@ -401,12 +401,92 @@ private struct DetailPane: View {
     private var fields: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Parameters").font(.caption).foregroundStyle(.secondary)
-            Form {
-                ForEach(action.fields) { field in
-                    fieldRow(field)
+            // Same label-above-control / paired-picker rendering used
+            // by QuickActionSheet so the two surfaces match. Form +
+            // LabeledContent (the old approach) had layout drift —
+            // pickers shrank to invisibly-narrow controls (the "Mode"
+            // dropdown with no visible selection was the symptom).
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(pairedFieldRows.enumerated()), id: \.offset) { idx, row in
+                    if idx > 0 {
+                        Divider()
+                    }
+                    if row.count == 2 {
+                        Grid(alignment: .topLeading,
+                             horizontalSpacing: 24,
+                             verticalSpacing: 0) {
+                            GridRow {
+                                pickerCell(field: row[0])
+                                pickerCell(field: row[1])
+                            }
+                        }
+                        .padding(.horizontal, 16).padding(.vertical, 10)
+                    } else {
+                        fieldRow(row[0])
+                            .padding(.horizontal, 16).padding(.vertical, 10)
+                    }
                 }
             }
-            .formStyle(.grouped)
+            .background(Color(NSColor.controlBackgroundColor))
+            .overlay(RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.secondary.opacity(0.18)))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+        }
+    }
+
+    /// Group consecutive `.picker` fields into pairs so the form can
+    /// render two-up rows. Mirrors QuickActionSheet.pairedFieldRows.
+    private var pairedFieldRows: [[QuickAction.Field]] {
+        var rows: [[QuickAction.Field]] = []
+        var i = 0
+        let fs = action.fields
+        while i < fs.count {
+            let cur = fs[i]
+            if case .picker = cur.kind,
+               i + 1 < fs.count,
+               case .picker = fs[i + 1].kind {
+                rows.append([cur, fs[i + 1]])
+                i += 2
+            } else {
+                rows.append([cur])
+                i += 1
+            }
+        }
+        return rows
+    }
+
+    @ViewBuilder
+    private func pickerCell(field: QuickAction.Field) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(field.label)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            inlinePickerControl(field: field)
+        }
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    @ViewBuilder
+    private func inlinePickerControl(field: QuickAction.Field) -> some View {
+        let binding = Binding<String>(
+            get: { values[field.id] ?? "" },
+            set: { values[field.id] = $0 }
+        )
+        switch field.kind {
+        case .picker(let options):
+            Picker("", selection: binding) {
+                ForEach(options) { opt in
+                    Text(opt.label).tag(opt.value)
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            // Minimum width keeps the dropdown chevron + selection
+            // text visible even when the selected option is a single
+            // word — without this the menu collapsed to a tiny chevron.
+            .frame(minWidth: 140)
+        default:
+            fieldRow(field)
         }
     }
 
@@ -418,20 +498,41 @@ private struct DetailPane: View {
         )
         switch field.kind {
         case .text:
-            LabeledContent(field.label) {
-                TextField("", text: binding, prompt: Text(verbatim: field.placeholder))
+            VStack(alignment: .leading, spacing: 4) {
+                Text(field.label)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                TextField("", text: binding,
+                          prompt: Text(verbatim: field.placeholder),
+                          axis: .vertical)
                     .textFieldStyle(.roundedBorder)
+                    .lineLimit(1...5)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         case .secure:
-            LabeledContent(field.label) {
-                SecureField("", text: binding, prompt: Text(verbatim: field.placeholder))
+            VStack(alignment: .leading, spacing: 4) {
+                Text(field.label)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                SecureField("", text: binding,
+                            prompt: Text(verbatim: field.placeholder))
                     .textFieldStyle(.roundedBorder)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         case .picker(let options):
-            Picker(field.label, selection: binding) {
-                ForEach(options) { opt in
-                    Text(opt.label).tag(opt.value)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(field.label)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Picker("", selection: binding) {
+                    ForEach(options) { opt in
+                        Text(opt.label).tag(opt.value)
+                    }
                 }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .frame(minWidth: 140)
             }
         }
     }
