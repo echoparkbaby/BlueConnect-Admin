@@ -71,7 +71,7 @@ struct QuickActionSheet: View {
             Divider()
             footer
         }
-        .frame(width: 520)
+        .frame(width: 400)
         .fixedSize(horizontal: false, vertical: true)
         .onAppear {
             primeDefaults()
