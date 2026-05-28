@@ -289,12 +289,18 @@ struct QuickActionSheet: View {
                         Divider()
                     }
                     if row.count == 2 {
-                        HStack(alignment: .firstTextBaseline, spacing: 0) {
-                            pickerCell(field: row[0])
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            Divider().padding(.vertical, 6)
-                            pickerCell(field: row[1])
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                        // Two cells side by side via Grid. Grid sizes
+                        // each row to the max cell height instead of
+                        // letting SwiftUI's HStack(.firstTextBaseline)
+                        // stretch the cells vertically (which made
+                        // every picker row 150pt tall earlier).
+                        Grid(alignment: .topLeading,
+                             horizontalSpacing: 24,
+                             verticalSpacing: 0) {
+                            GridRow {
+                                pickerCell(field: row[0])
+                                pickerCell(field: row[1])
+                            }
                         }
                         .padding(.horizontal, 16).padding(.vertical, 10)
                     } else {
@@ -307,7 +313,7 @@ struct QuickActionSheet: View {
             .overlay(RoundedRectangle(cornerRadius: 8)
                         .stroke(Color.secondary.opacity(0.18)))
             .clipShape(RoundedRectangle(cornerRadius: 8))
-            .padding(.horizontal, 16).padding(.vertical, 12)
+            .padding(.horizontal, 16).padding(.vertical, 8)
         }
     }
 
@@ -323,12 +329,9 @@ struct QuickActionSheet: View {
             Text(field.label)
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            // Reuses the existing fieldRow body for the actual picker —
-            // it already handles every kind/.dataSource case. Just
-            // strip the LabeledContent wrapper by overriding the row
-            // with the inline kind-specific rendering when possible.
             inlinePickerControl(field: field)
         }
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     /// Just the picker control without the label — pulled out so
@@ -346,10 +349,10 @@ struct QuickActionSheet: View {
             }
             .labelsHidden()
             .pickerStyle(.menu)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            // No .frame(maxWidth: .infinity) — let the Picker size
+            // itself to content. Stretching forced SwiftUI to think
+            // the cell was taller than it needed to be.
         default:
-            // Non-picker fields shouldn't reach pickerCell, but render
-            // through fieldRow as a fallback to avoid silent gaps.
             fieldRow(field)
         }
     }
