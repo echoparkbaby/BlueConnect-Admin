@@ -474,11 +474,34 @@ struct ContentView: View {
             .environmentObject(settings)
         }
         .sheet(item: $quickActionTarget) { target in
-            QuickActionSheet(host: target.host, action: target.action) { command in
-                runQuickAction(host: target.host,
-                               action: target.action,
-                               command: command)
-            }
+            // Check for an existing SSH tab against this host at sheet
+            // open time. If one exists, the sheet renders a secondary
+            // "Run in Existing Tab" button that injects the command
+            // into that tab's PTY instead of opening a fresh one.
+            let existing = terminals.reusableSSHSession(for: target.host.blueskyid)
+            QuickActionSheet(
+                host: target.host,
+                action: target.action,
+                existingTabTitle: existing?.title,
+                onRun: { command in
+                    runQuickAction(host: target.host,
+                                   action: target.action,
+                                   command: command)
+                },
+                onRunInExistingTab: existing.map { session in
+                    { command in
+                        // Append a trailing newline so the remote shell
+                        // processes the line. quickActionStore.noteUsed
+                        // mirrors the analytics side-effect in
+                        // runQuickAction so the usage counter ticks
+                        // even on the reuse path.
+                        quickActionStore.noteUsed(target.action.id)
+                        recents.recordConnect(blueskyid: target.host.blueskyid)
+                        terminals.activeSessionID = session.id
+                        session.sendInput(command + "\n")
+                    }
+                }
+            )
         }
         .sheet(item: $chatTargetSheet) { host in
             ChatTargetUserSheet(host: host) { targetUser in

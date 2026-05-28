@@ -135,13 +135,13 @@ final class ChatService: ObservableObject, Identifiable {
             let msg: String
             switch out {
             case "MISSING_HELPER":
-                msg = "GUI Helper not installed on \(host.displayName). Right-click the host → Quick Actions → Miscellaneous → \"Setup: Install GUI Helper (one-time)\" and try again."
+                msg = "GUI Helper not installed on \(host.displayName). Right-click the host → Quick Actions → Miscellaneous → \"Setup: Install GUI Helper\" and try again."
             case "MISSING_CHAT_DIR":
-                msg = "The chat directory hasn't been set up on \(host.displayName) (likely installed before the chat feature shipped). Re-run \"Setup: Install GUI Helper (one-time)\" on this Mac — it's idempotent and will add the missing /chat folder."
+                msg = "The chat directory hasn't been set up on \(host.displayName) (likely installed before the chat feature shipped). Re-run \"Setup: Install GUI Helper\" on this Mac — it's idempotent and will add the missing /chat folder."
             case "MISSING_CHAT_BINARY":
                 msg = "/usr/local/bin/blueconnect-chat is missing on \(host.displayName). The chat binary install is currently a separate step from the GUI Helper setup (in-app installer is a TODO). For now, push it manually from a terminal on your admin Mac:\n\nscp -P <port> -o ProxyCommand=\"ssh -p 3122 -i ~/.ssh/bluesky_admin admin@bluesky.macfaqulty.com /bin/nc %h %p\" \"$(path-to)/BlueConnect Admin.app/Contents/Resources/blueconnect-chat\" ladmin@localhost:/tmp/\n\nthen ssh in and: sudo install -m 755 -o root -g wheel /tmp/blueconnect-chat /usr/local/bin/blueconnect-chat"
             default:
-                msg = "Unable to prepare \(host.displayName) for chat (\(probe.stderr.prefix(200))). Re-run \"Setup: Install GUI Helper (one-time)\"."
+                msg = "Unable to prepare \(host.displayName) for chat (\(probe.stderr.prefix(200))). Re-run \"Setup: Install GUI Helper\"."
             }
             appendSystem(msg)
             statusText = "Setup needed"

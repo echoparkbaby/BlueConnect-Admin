@@ -11,24 +11,45 @@ struct QuickActionSheet: View {
     let targetName: String
     let action: QuickAction
     let onRun: (String) -> Void  // receives the fully-built shell command
+    /// Optional: when non-nil, the sheet renders a secondary "Run in
+    /// existing tab" button alongside the primary Run button. Clicking
+    /// it calls this closure with the built command; the receiver is
+    /// expected to write the command into the already-open shell
+    /// session for the target host instead of spawning a new SSH tab.
+    /// nil → button is hidden (no reusable session, or feature N/A).
+    let onRunInExistingTab: ((String) -> Void)?
+    /// Display name for the existing session — shows up in the
+    /// secondary button label and a small note above it so the
+    /// operator can verify which tab they're about to inject into.
+    let existingTabTitle: String?
     /// BSC host context — non-nil for the host-row right-click path,
     /// nil for the local-network sidebar path. Used to power dynamic
     /// pickers that need the host's serial (e.g. `.mrLocalUsers`).
     let hostContext: BlueSkyHost?
 
     /// Convenience init used by the existing BSC-host call sites.
-    init(host: BlueSkyHost, action: QuickAction, onRun: @escaping (String) -> Void) {
+    init(host: BlueSkyHost,
+         action: QuickAction,
+         existingTabTitle: String? = nil,
+         onRun: @escaping (String) -> Void,
+         onRunInExistingTab: ((String) -> Void)? = nil) {
         self.targetName = host.displayName
         self.action = action
         self.onRun = onRun
+        self.onRunInExistingTab = onRunInExistingTab
+        self.existingTabTitle = existingTabTitle
         self.hostContext = host
     }
 
     /// Init used by the local-network sidebar's Quick Actions submenu.
-    init(targetName: String, action: QuickAction, onRun: @escaping (String) -> Void) {
+    init(targetName: String,
+         action: QuickAction,
+         onRun: @escaping (String) -> Void) {
         self.targetName = targetName
         self.action = action
         self.onRun = onRun
+        self.onRunInExistingTab = nil
+        self.existingTabTitle = nil
         self.hostContext = nil
     }
 
@@ -425,7 +446,7 @@ struct QuickActionSheet: View {
             let aAdm = a.admin?.isOn ?? false
             let bAdm = b.admin?.isOn ?? false
             if aAdm != bAdm { return aAdm && !bAdm }
-            return (a.uid ?? Int.max) < (b.uid ?? Int.max)
+            return (a.uidValue ?? Int.max) < (b.uidValue ?? Int.max)
         }
         let otherSentinel = "__other__"
         let autoSentinel  = QuickAction.autoConsoleUserSentinel
@@ -662,20 +683,48 @@ struct QuickActionSheet: View {
     }
 
     private var footer: some View {
-        HStack {
-            Spacer()
-            Button("Cancel", role: .cancel) { dismiss() }
-                .keyboardShortcut(.cancelAction)
-            Button("Run", role: action.isDestructive ? .destructive : nil) {
-                QuickActionDefaults.save(actionID: action.id,
-                                         values: values,
-                                         fields: action.fields)
-                onRun(action.buildCommand(values))
-                dismiss()
+        VStack(spacing: 6) {
+            if let title = existingTabTitle, onRunInExistingTab != nil {
+                // Small contextual notice — names the tab so the
+                // operator can tell whether they're about to dump a
+                // command into the right session.
+                HStack(spacing: 4) {
+                    Image(systemName: "rectangle.stack")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Text("Existing SSH tab open: ")
+                        .font(.caption2).foregroundStyle(.secondary)
+                    + Text(title)
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.primary)
+                    Spacer()
+                }
             }
-            .buttonStyle(.borderedProminent)
-            .keyboardShortcut(.defaultAction)
-            .disabled(!hasRequiredValues)
+            HStack {
+                Spacer()
+                Button("Cancel", role: .cancel) { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                if let onExisting = onRunInExistingTab {
+                    Button("Run in Existing Tab") {
+                        QuickActionDefaults.save(actionID: action.id,
+                                                 values: values,
+                                                 fields: action.fields)
+                        onExisting(action.buildCommand(values))
+                        dismiss()
+                    }
+                    .disabled(!hasRequiredValues)
+                    .help("Inject this command into the existing SSH tab for this host instead of opening a new one. Heads-up: if a TUI (vim/top/less) is running there, the line gets sent as input to that program.")
+                }
+                Button("Run", role: action.isDestructive ? .destructive : nil) {
+                    QuickActionDefaults.save(actionID: action.id,
+                                             values: values,
+                                             fields: action.fields)
+                    onRun(action.buildCommand(values))
+                    dismiss()
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+                .disabled(!hasRequiredValues)
+            }
         }
         .padding(.horizontal, 16).padding(.vertical, 12)
     }

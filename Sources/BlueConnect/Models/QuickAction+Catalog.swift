@@ -885,7 +885,7 @@ extension QuickAction {
                 INBOX="/Library/Application Support/BlueConnect/inbox"; \
                 if [ ! -d "$INBOX" ]; then \
                   echo "ERROR: GUI Helper is not installed on this Mac."; \
-                  echo "Run the 'Setup: Install GUI Helper (one-time)' Quick Action first."; \
+                  echo "Run the 'Setup: Install GUI Helper' Quick Action first."; \
                   exit 1; \
                 fi; \
                 consoleUser=$(stat -f%Su /dev/console); \
@@ -921,7 +921,7 @@ extension QuickAction {
         // the agent. Safe to re-run after macOS upgrades.
         QuickAction(
             id: "setupGuiHelper",
-            label: "Setup: Install GUI Helper (one-time)",
+            label: "Setup: Install GUI Helper",
             category: .miscellaneous, icon: "wand.and.rays",
             fields: [],
             tabLabel: "setup-gui-helper", isDestructive: true,
@@ -1134,7 +1134,7 @@ extension QuickAction {
             fields: [],
             tabLabel: "uninstall-gui-helper", isDestructive: true,
             help: """
-            Removes the GUI Helper from this Mac — undoes **Setup: Install GUI Helper (one-time)**. Large Type, Notify User, and Chat will stop working on this Mac until the helper is reinstalled.
+            Removes the GUI Helper from this Mac — undoes **Setup: Install GUI Helper**. Large Type, Notify User, and Chat will stop working on this Mac until the helper is reinstalled.
 
             **What gets removed:**
 
@@ -1290,7 +1290,7 @@ extension QuickAction {
                 INBOX="/Library/Application Support/BlueConnect/inbox"; \
                 if [ ! -d "$INBOX" ]; then \
                   echo "ERROR: GUI Helper is not installed on this Mac."; \
-                  echo "Run the 'Setup: Install GUI Helper (one-time)' Quick Action first."; \
+                  echo "Run the 'Setup: Install GUI Helper' Quick Action first."; \
                   exit 1; \
                 fi; \
                 consoleUser=$(stat -f%Su /dev/console); \

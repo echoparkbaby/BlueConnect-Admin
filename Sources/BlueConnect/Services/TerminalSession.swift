@@ -141,6 +141,16 @@ final class TerminalSession: NSObject, Identifiable, LocalProcessTerminalViewDel
         isRunning = false
     }
 
+    /// Write `text` into the session's PTY as if the operator had
+    /// typed it. Used by the "Run in existing tab" path in the
+    /// QuickAction sheet — instead of spawning a new SSH session, we
+    /// feed the command into an already-connected shell. Caller
+    /// usually appends "\n" so the shell processes the line.
+    func sendInput(_ text: String) {
+        let bytes = [UInt8](text.utf8)
+        view.process.send(data: bytes[...])
+    }
+
     /// Push the user's saved Terminal preferences into a SwiftTerm
     /// view. Reads `terminalFontSize` + the three color hex strings
     /// straight from UserDefaults (the same store `@AppStorage` writes

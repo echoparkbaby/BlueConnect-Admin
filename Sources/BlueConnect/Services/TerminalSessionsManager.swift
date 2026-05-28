@@ -40,6 +40,17 @@ final class TerminalSessionsManager {
         for s in sessions { s.reapplyAppearance() }
     }
 
+    /// First live SSH session connected to `blueskyid`, if any.
+    /// Used by the QuickAction sheet's "Run in existing tab" option —
+    /// when the operator has an interactive shell open against the
+    /// target host, the Quick Action can fire its command into that
+    /// session instead of opening a fresh SSH tab.
+    func reusableSSHSession(for blueskyid: Int) -> TerminalSession? {
+        sessions.first(where: {
+            $0.blueskyid == blueskyid && $0.kind == .ssh && $0.isRunning
+        })
+    }
+
     var activeSessionID: UUID? {
         get {
             if case .session(let id) = activeSelection { return id }
