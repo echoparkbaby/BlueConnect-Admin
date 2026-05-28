@@ -360,27 +360,29 @@ struct QuickActionSheet: View {
                              binding: Binding<String>) -> some View {
         switch field.kind {
         case .text:
-            LabeledContent(field.label) {
-                HStack(alignment: .top, spacing: 6) {
-                    // Empty title + explicit `prompt:` so the placeholder
-                    // renders INSIDE the field, not as a trailing label
-                    // outside the rounded box. axis: .vertical +
-                    // lineLimit(1...5) lets long inputs (Large Type
-                    // multi-line messages) wrap and grow up to five
-                    // lines instead of scrolling horizontally past the
-                    // visible width — short single-line inputs are
-                    // unaffected.
-                    TextField("", text: binding,
-                              prompt: Text(verbatim: field.placeholder),
-                              axis: .vertical)
-                        .textFieldStyle(.roundedBorder)
-                        .lineLimit(1...5)
-                        .frame(maxWidth: 280)
-                    if field.dataSource == .mrLocalUsers, mrUsersLoading {
-                        ProgressView().controlSize(.small)
-                    }
-                    Spacer(minLength: 0)
+            // Hand-rolled HStack instead of LabeledContent: a vertical-
+            // growing TextField inside LabeledContent gets baseline-
+            // aligned to the label, so only the bottom couple of lines
+            // remain visible inside the row height and earlier lines
+            // appear clipped (right-aligned/faded). Custom layout with
+            // .top alignment lets the field grow downward without
+            // disturbing the label row.
+            HStack(alignment: .top, spacing: 8) {
+                Text(field.label)
+                    .frame(width: 130, alignment: .leading)
+                    .padding(.top, 4)   // optical centerline with field's first line
+                TextField("", text: binding,
+                          prompt: Text(verbatim: field.placeholder),
+                          axis: .vertical)
+                    .textFieldStyle(.roundedBorder)
+                    .lineLimit(1...5)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: 280, alignment: .leading)
+                if field.dataSource == .mrLocalUsers, mrUsersLoading {
+                    ProgressView().controlSize(.small)
+                        .padding(.top, 4)
                 }
+                Spacer(minLength: 0)
             }
         case .secure:
             LabeledContent(field.label) {
