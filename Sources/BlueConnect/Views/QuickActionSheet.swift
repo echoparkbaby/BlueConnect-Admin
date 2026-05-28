@@ -275,31 +275,92 @@ struct QuickActionSheet: View {
             }
             .padding(16)
         } else {
-            Form {
-                ForEach(Array(pairedFieldRows.enumerated()), id: \.offset) { _, row in
+            // Hand-rolled form. SwiftUI's Form{} + .formStyle(.grouped)
+            // applied its own row padding around our custom HStack/Grid
+            // rendering — leaving giant gaps between labels and their
+            // controls, and stacking long-labeled pickers vertically
+            // when there wasn't enough width. Building the form
+            // ourselves out of plain VStack rows is more predictable
+            // and gives us a consistent label column across all field
+            // kinds.
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(pairedFieldRows.enumerated()), id: \.offset) { idx, row in
+                    if idx > 0 {
+                        Divider()
+                    }
                     if row.count == 2 {
-                        // Two consecutive pickers → side by side via
-                        // Grid so the two label columns share a fixed
-                        // leading column width. HStack(.firstTextBaseline)
-                        // let SwiftUI pick column widths based on label
-                        // length, making short+long label pairs visually
-                        // ragged. Grid pins both labels to the same
-                        // leading edge.
-                        Grid(alignment: .leading,
-                             horizontalSpacing: 16,
-                             verticalSpacing: 0) {
-                            GridRow {
-                                fieldRow(row[0])
-                                fieldRow(row[1])
-                            }
+                        HStack(alignment: .firstTextBaseline, spacing: 0) {
+                            pickerCell(field: row[0])
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            Divider().padding(.vertical, 6)
+                            pickerCell(field: row[1])
+                                .frame(maxWidth: .infinity, alignment: .leading)
                         }
+                        .padding(.horizontal, 16).padding(.vertical, 10)
                     } else {
                         fieldRow(row[0])
+                            .padding(.horizontal, 16).padding(.vertical, 10)
                     }
                 }
             }
-            .formStyle(.grouped)
+            .background(Color(NSColor.controlBackgroundColor))
+            .overlay(RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.secondary.opacity(0.18)))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .padding(.horizontal, 16).padding(.vertical, 12)
         }
+    }
+
+    /// Single picker cell: short label on top, picker below, both at
+    /// the same leading edge. The previous LabeledContent+Grid
+    /// approach mis-aligned when one row's labels were short and the
+    /// next row's labels were long ("Auto-hide after" wrapped, the
+    /// picker stacked vertically). Top-label layout makes every
+    /// picker cell identical in shape regardless of label length.
+    @ViewBuilder
+    private func pickerCell(field: QuickAction.Field) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(field.label)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            // Reuses the existing fieldRow body for the actual picker —
+            // it already handles every kind/.dataSource case. Just
+            // strip the LabeledContent wrapper by overriding the row
+            // with the inline kind-specific rendering when possible.
+            inlinePickerControl(field: field)
+        }
+    }
+
+    /// Just the picker control without the label — pulled out so
+    /// `pickerCell` can lay it out under the label instead of inside
+    /// a LabeledContent.
+    @ViewBuilder
+    private func inlinePickerControl(field: QuickAction.Field) -> some View {
+        let binding = fieldBinding(for: field)
+        switch field.kind {
+        case .picker(let options):
+            Picker("", selection: binding) {
+                ForEach(options) { opt in
+                    Text(opt.label).tag(opt.value)
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        default:
+            // Non-picker fields shouldn't reach pickerCell, but render
+            // through fieldRow as a fallback to avoid silent gaps.
+            fieldRow(field)
+        }
+    }
+
+    /// Binding helper extracted so `inlinePickerControl` doesn't need
+    /// to duplicate the dictionary-default machinery used by fieldRow.
+    private func fieldBinding(for field: QuickAction.Field) -> Binding<String> {
+        Binding(
+            get: { values[field.id] ?? field.defaultValue },
+            set: { values[field.id] = $0 }
+        )
     }
 
     /// Group consecutive `.picker` fields into pairs so the form can
@@ -437,56 +498,55 @@ struct QuickActionSheet: View {
                              binding: Binding<String>) -> some View {
         switch field.kind {
         case .text:
-            // Hand-rolled HStack instead of LabeledContent: a vertical-
-            // growing TextField inside LabeledContent gets baseline-
-            // aligned to the label, so only the bottom couple of lines
-            // remain visible inside the row height and earlier lines
-            // appear clipped (right-aligned/faded). Custom layout with
-            // .top alignment lets the field grow downward without
-            // disturbing the label row.
-            HStack(alignment: .top, spacing: 8) {
+            // Label above, field full-width below. Multi-line messages
+            // (Large Type) get room to grow vertically without the
+            // baseline-clipping that LabeledContent caused, and short
+            // single-line entries still look fine — they just don't
+            // expand past one line.
+            VStack(alignment: .leading, spacing: 4) {
                 Text(field.label)
-                    .frame(width: 130, alignment: .leading)
-                    .padding(.top, 4)   // optical centerline with field's first line
-                TextField("", text: binding,
-                          prompt: Text(verbatim: field.placeholder),
-                          axis: .vertical)
-                    .textFieldStyle(.roundedBorder)
-                    .lineLimit(1...5)
-                    .multilineTextAlignment(.leading)
-                    .frame(maxWidth: 280, alignment: .leading)
-                if field.dataSource == .mrLocalUsers, mrUsersLoading {
-                    ProgressView().controlSize(.small)
-                        .padding(.top, 4)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                HStack(alignment: .top, spacing: 6) {
+                    TextField("", text: binding,
+                              prompt: Text(verbatim: field.placeholder),
+                              axis: .vertical)
+                        .textFieldStyle(.roundedBorder)
+                        .lineLimit(1...5)
+                        .multilineTextAlignment(.leading)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    if field.dataSource == .mrLocalUsers, mrUsersLoading {
+                        ProgressView().controlSize(.small)
+                            .padding(.top, 4)
+                    }
                 }
-                Spacer(minLength: 0)
             }
         case .secure:
-            LabeledContent(field.label) {
-                HStack(spacing: 6) {
-                    SecureField("", text: binding,
-                                prompt: Text(verbatim: field.placeholder))
-                        .textFieldStyle(.roundedBorder)
-                        .frame(maxWidth: 280)
-                    Spacer(minLength: 0)
-                }
+            VStack(alignment: .leading, spacing: 4) {
+                Text(field.label)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                SecureField("", text: binding,
+                            prompt: Text(verbatim: field.placeholder))
+                    .textFieldStyle(.roundedBorder)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         case .picker(let options):
-            // Wrap in LabeledContent (same shape as the text + secure
-            // rows above) so the label column stays consistent and the
-            // picker control can be capped without stretching.
-            LabeledContent(field.label) {
-                HStack(spacing: 6) {
-                    Picker("", selection: binding) {
-                        ForEach(options) { opt in
-                            Text(opt.label).tag(opt.value)
-                        }
+            // Single (unpaired) picker — label above, picker below at
+            // full width. Paired pickers go through `pickerCell`
+            // which uses the same label-above layout for consistency.
+            VStack(alignment: .leading, spacing: 4) {
+                Text(field.label)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Picker("", selection: binding) {
+                    ForEach(options) { opt in
+                        Text(opt.label).tag(opt.value)
                     }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                    .frame(maxWidth: 320, alignment: .leading)
-                    Spacer(minLength: 0)
                 }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
