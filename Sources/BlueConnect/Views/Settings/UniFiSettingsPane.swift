@@ -53,7 +53,7 @@ struct UniFiSettingsPane: View {
                 .fixedSize(horizontal: false, vertical: true)
             TextEditor(text: $settings.scanSubnets)
                 .font(.body.monospaced())
-                .frame(minHeight: 90, idealHeight: 120, maxHeight: 200)
+                .frame(minHeight: 45, idealHeight: 60, maxHeight: 100)
                 .overlay(
                     RoundedRectangle(cornerRadius: 4)
                         .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
