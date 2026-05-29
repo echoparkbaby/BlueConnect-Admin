@@ -117,11 +117,17 @@ final class ChatService: ObservableObject, Identifiable {
         // mode 0777). If it's missing or not writable, the mkdir below
         // would fail with a cryptic permission-denied; explain instead
         // so the operator knows the fix is to re-run helper setup.
-        // Probe steps:
+        // Probe steps (run in order, bail on first failure):
         //   1. inbox/ exists  → helper setup ran at least once
         //   2. chat dir writable
         //   3. chat binary executable
-        //   4. **Liveness probe:** drop a no-op job into inbox, wait
+        //   4. macOS 14+  → the chat client is compiled against the
+        //      macOS 14 SDK. On older systems it dyld-crashes the
+        //      moment the helper launches it, so no chat window
+        //      appears even though the helper is healthy. Probe BEFORE
+        //      the liveness check — no point flapping the inbox if
+        //      chat is fundamentally not going to run.
+        //   5. **Liveness probe:** drop a no-op job into inbox, wait
         //      up to ~3 s for the LaunchAgent's WatchPaths to fire
         //      and the helper to consume (delete) the file. The
         //      helper is a one-shot script (not a daemon) so
@@ -138,6 +144,11 @@ final class ChatService: ObservableObject, Identifiable {
         fi; \
         if [ ! -x "/usr/local/bin/blueconnect-chat" ]; then \
           echo "MISSING_CHAT_BINARY"; exit 1; \
+        fi; \
+        FULL_VER=$(sw_vers -productVersion 2>/dev/null); \
+        MAJOR_VER=$(echo "$FULL_VER" | cut -d. -f1); \
+        if [ -n "$MAJOR_VER" ] && [ "$MAJOR_VER" -lt 14 ] 2>/dev/null; then \
+          echo "MACOS_TOO_OLD:$FULL_VER"; exit 1; \
         fi; \
         PROBE="/Library/Application Support/BlueConnect/inbox/probe-$$-$(date +%s).job"; \
         printf '%s\n' "osascript -e 'return 0'" > "$PROBE"; \
@@ -162,6 +173,9 @@ final class ChatService: ObservableObject, Identifiable {
                 msg = "The chat directory hasn't been set up on \(host.displayName) (likely installed before the chat feature shipped). Re-run \"Setup: Install GUI Helper\" on this Mac — it's idempotent and will add the missing /chat folder."
             case "MISSING_CHAT_BINARY":
                 msg = "/usr/local/bin/blueconnect-chat is missing on \(host.displayName). The chat binary install is currently a separate step from the GUI Helper setup (in-app installer is a TODO). For now, push it manually from a terminal on your admin Mac:\n\nscp -P <port> -o ProxyCommand=\"ssh -p 3122 -i ~/.ssh/bluesky_admin admin@bluesky.macfaqulty.com /bin/nc %h %p\" \"$(path-to)/BlueConnect Admin.app/Contents/Resources/blueconnect-chat\" ladmin@localhost:/tmp/\n\nthen ssh in and: sudo install -m 755 -o root -g wheel /tmp/blueconnect-chat /usr/local/bin/blueconnect-chat"
+            case let s where s.hasPrefix("MACOS_TOO_OLD:"):
+                let ver = s.dropFirst("MACOS_TOO_OLD:".count)
+                msg = "Chat requires macOS 14+. \(host.displayName) is on macOS \(ver) — upgrade the host or skip chat for this one."
             default:
                 msg = "Unable to prepare \(host.displayName) for chat (\(probe.stderr.prefix(200))). Re-run \"Setup: Install GUI Helper\"."
             }
