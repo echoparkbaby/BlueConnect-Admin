@@ -175,6 +175,7 @@ struct ScannedTableWindow: View {
                 Text("\(scanner.progress)/\(scanner.total)")
                     .font(.caption.monospaced()).foregroundStyle(.secondary)
             }
+            unifiProfilePicker
             Button {
                 Task { await runScan() }
             } label: {
@@ -187,6 +188,42 @@ struct ScannedTableWindow: View {
             .disabled(scanner.isScanning)
         }
         .padding(.horizontal, 16).padding(.vertical, 10)
+    }
+
+    /// Profile switcher shown when 2+ UniFi profiles exist. With one
+    /// (or zero) profiles the menu would be a single-option dropdown,
+    /// so we hide it — the scan window's busy enough already. The
+    /// "Manage profiles…" tail item routes through `NSApp` so we
+    /// don't have to thread `openSettings` through this view.
+    @ViewBuilder
+    private var unifiProfilePicker: some View {
+        let profiles = settings.unifiProfiles
+        if profiles.count >= 2 {
+            Menu {
+                ForEach(profiles) { p in
+                    Button {
+                        settings.activeUnifiProfileID = p.id
+                    } label: {
+                        Label(p.label, systemImage: settings.activeUnifiProfile?.id == p.id
+                              ? "checkmark"
+                              : "")
+                    }
+                }
+                Divider()
+                Button("Manage Profiles…") {
+                    NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "network")
+                    Text(settings.activeUnifiProfile?.label ?? "UniFi")
+                        .lineLimit(1)
+                }
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .help("Switch UniFi controller profile")
+        }
     }
 
     private var headerSubtitle: String {
@@ -236,7 +273,7 @@ struct ScannedTableWindow: View {
                         .lineLimit(1)
                 }
             }
-            .width(min: 130, ideal: 180)
+            .width(min: 130, ideal: 200)
             .customizationID("dnsName")
             TableColumn("IP", value: \.ipSortKey) { (r: Row) in
                 // IP gets a slightly bigger monospace face — it's the
@@ -352,9 +389,7 @@ struct ScannedTableWindow: View {
             .split(whereSeparator: { ",\n ".contains($0) })
             .map(String.init)
         let candidates = rendezvous.services
-        let unifi: (String, String, String)? = settings.isUnifiConfigured
-            ? (settings.unifiBaseURL, settings.unifiAPIKey, settings.unifiSite)
-            : nil
+        let unifi = settings.activeUnifiCredentials
         await scanner.scan(cidrs: cidrs, bonjourCandidates: candidates, unifi: unifi)
     }
 

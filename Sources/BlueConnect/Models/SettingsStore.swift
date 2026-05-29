@@ -66,23 +66,31 @@ final class SettingsStore: ObservableObject {
     /// scanner refuses /15 and below to keep run time bounded).
     @AppStorage("scanSubnets") var scanSubnets: String = "10.0.0.0/24, 192.168.1.0/24"
 
-    // MARK: - UniFi controller (optional enrichment for network scans)
+    // MARK: - UniFi controller (legacy single-config — see UniFi profiles below)
 
-    /// UniFi Network Application base URL — e.g. `https://10.0.0.1`
-    /// for a UDM, or `https://unifi.example.com` for an externally
-    /// hosted controller. The scanner appends
-    /// `/proxy/network/integrations/v1/...` to this. Self-signed
-    /// certs are accepted by the client (most home UniFis).
+    /// **Legacy.** Kept only so `migrateLegacyUnifiSettingsIfNeeded`
+    /// can read the pre-1.4.x single-controller config one last time
+    /// and promote it to the new `unifiProfiles` list. Live UI binds
+    /// to `UniFiProfile` fields instead.
     @AppStorage("unifiBaseURL") var unifiBaseURL: String = ""
-    /// UniFi site internalReference. Default UniFi installs have
-    /// one site named "default"; advanced setups can have multiple.
+    /// **Legacy.** See `unifiBaseURL`.
     @AppStorage("unifiSite") var unifiSite: String = "default"
-    /// UniFi integration API key, stored in the Keychain (NOT
-    /// `@AppStorage`, which would put it in unencrypted plist).
-    /// The string property here is the in-memory mirror that the
-    /// settings UI binds to; `saveUnifiAPIKeyToKeychain()` /
-    /// `loadUnifiAPIKeyFromKeychain()` handle persistence.
+    /// **Legacy.** In-memory mirror of the pre-1.4.x single API key.
+    /// Migration moves the Keychain entry to a per-profile account.
     @Published var unifiAPIKey: String = ""
+
+    /// JSON-encoded `[UniFiProfile]`. Hand-rolled rather than a typed
+    /// helper because @AppStorage only persists primitives — the
+    /// `unifiProfiles` computed property below is the typed accessor.
+    @AppStorage("unifiProfiles") private var unifiProfilesRaw: String = "[]"
+    /// Empty string when no profile is active (or before migration).
+    @AppStorage("activeUnifiProfileID") private var activeUnifiProfileIDRaw: String = ""
+    /// One-shot guard so the legacy → profiles migration runs at most
+    /// once even across version downgrades. Avoids stomping a freshly
+    /// edited profile list if the user later re-runs an old build
+    /// that still wrote to the legacy keys.
+    @AppStorage("unifiProfilesMigrated") private var unifiProfilesMigrated: Bool = false
+
     @AppStorage("hideInactive") var hideInactive: Bool = false  // "Active only" filter
     @AppStorage("showOnlyInactive") var showOnlyInactive: Bool = false  // "Inactive only" filter
 
@@ -486,13 +494,108 @@ final class SettingsStore: ObservableObject {
 
     func loadUnifiAPIKeyFromKeychain() {
         unifiAPIKey = KeychainHelper.read(account: Self.unifiAPIKeyAccount) ?? ""
+        migrateLegacyUnifiSettingsIfNeeded()
     }
     func saveUnifiAPIKeyToKeychain() {
         KeychainHelper.save(unifiAPIKey, account: Self.unifiAPIKeyAccount)
     }
+
+    // MARK: - UniFi profiles (multi-controller)
+
+    /// Per-profile Keychain account name. Suffixed by the profile's
+    /// UUID so deleting a profile cleanly orphans its key (callers
+    /// must `KeychainHelper.delete` after they remove from the list).
+    private func unifiAPIKeyAccount(for id: UUID) -> String {
+        "BlueConnectAdmin.unifiAPIKey.\(id.uuidString)"
+    }
+
+    var unifiProfiles: [UniFiProfile] {
+        get {
+            guard let data = unifiProfilesRaw.data(using: .utf8),
+                  let arr = try? JSONDecoder().decode([UniFiProfile].self, from: data)
+            else { return [] }
+            return arr
+        }
+        set {
+            let data = (try? JSONEncoder().encode(newValue)) ?? Data("[]".utf8)
+            unifiProfilesRaw = String(data: data, encoding: .utf8) ?? "[]"
+        }
+    }
+
+    var activeUnifiProfileID: UUID? {
+        get { UUID(uuidString: activeUnifiProfileIDRaw) }
+        set { activeUnifiProfileIDRaw = newValue?.uuidString ?? "" }
+    }
+
+    /// Currently selected profile. Falls back to the first profile in
+    /// the list when `activeUnifiProfileID` is nil or stale, so the
+    /// UI never has to handle a "no active selection but profiles
+    /// exist" state.
+    var activeUnifiProfile: UniFiProfile? {
+        let list = unifiProfiles
+        if let id = activeUnifiProfileID,
+           let p = list.first(where: { $0.id == id }) { return p }
+        return list.first
+    }
+
+    func unifiAPIKey(for profile: UniFiProfile) -> String {
+        KeychainHelper.read(account: unifiAPIKeyAccount(for: profile.id)) ?? ""
+    }
+
+    func setUnifiAPIKey(_ key: String, for profile: UniFiProfile) {
+        KeychainHelper.save(key, account: unifiAPIKeyAccount(for: profile.id))
+    }
+
+    func deleteUnifiAPIKey(for profile: UniFiProfile) {
+        KeychainHelper.delete(account: unifiAPIKeyAccount(for: profile.id))
+    }
+
+    func isConfigured(_ profile: UniFiProfile) -> Bool {
+        profile.hasURL && !unifiAPIKey(for: profile).isEmpty
+    }
+
     var isUnifiConfigured: Bool {
-        !unifiBaseURL.trimmingCharacters(in: .whitespaces).isEmpty
-        && !unifiAPIKey.trimmingCharacters(in: .whitespaces).isEmpty
+        guard let p = activeUnifiProfile else { return false }
+        return isConfigured(p)
+    }
+
+    /// `(baseURL, apiKey, site)` for the active profile, or nil when
+    /// nothing is configured. The exact tuple shape the scanner +
+    /// settings test path consume.
+    var activeUnifiCredentials: (String, String, String)? {
+        guard let p = activeUnifiProfile, isConfigured(p) else { return nil }
+        return (p.baseURL, unifiAPIKey(for: p), p.resolvedSite)
+    }
+
+    /// One-shot legacy → profiles migration. Runs once after the
+    /// keychain bootstrap so the legacy `unifiAPIKey` mirror is
+    /// populated. If a legacy URL is present and the profiles list is
+    /// empty, promote the legacy single-controller config into a
+    /// "Default" profile, copy the key across Keychain accounts, then
+    /// clear the legacy AppStorage + Keychain entries so a downgrade
+    /// can't resurrect them.
+    private func migrateLegacyUnifiSettingsIfNeeded() {
+        guard !unifiProfilesMigrated else { return }
+        defer { unifiProfilesMigrated = true }
+        let legacyURL = unifiBaseURL.trimmingCharacters(in: .whitespaces)
+        guard !legacyURL.isEmpty else { return }
+        // Don't stomp profiles a newer build already wrote.
+        guard unifiProfiles.isEmpty else { return }
+        let profile = UniFiProfile(
+            label: "Default",
+            baseURL: legacyURL,
+            site: unifiSite
+        )
+        unifiProfiles = [profile]
+        activeUnifiProfileID = profile.id
+        if !unifiAPIKey.isEmpty {
+            setUnifiAPIKey(unifiAPIKey, for: profile)
+        }
+        // Decommission the legacy entries.
+        KeychainHelper.delete(account: Self.unifiAPIKeyAccount)
+        unifiBaseURL = ""
+        unifiSite = "default"
+        unifiAPIKey = ""
     }
 
     func loadMunkiSecretFromKeychain() {

@@ -48,9 +48,7 @@ struct ScannedSection: View {
                         .split(whereSeparator: { ",\n ".contains($0) })
                         .map(String.init)
                     let candidates = rendezvous.services
-                    let unifi: (String, String, String)? = settings.isUnifiConfigured
-                        ? (settings.unifiBaseURL, settings.unifiAPIKey, settings.unifiSite)
-                        : nil
+                    let unifi = settings.activeUnifiCredentials
                     Task { await scanner.scan(cidrs: cidrs, bonjourCandidates: candidates, unifi: unifi) }
                 } label: {
                     Image(systemName: "arrow.clockwise")
