@@ -18,6 +18,13 @@ struct MunkiBrowserView: View {
     @State private var search: String = ""
     @State private var catalogFilter: String = "all"
     @State private var selection: MunkiPkg.ID?
+    /// Persisted list of favorited package NAMES (not versions) —
+    /// "Firefox" stays favorited as the Munki repo cuts new versions;
+    /// each render resolves the name to the newest available version
+    /// via `groupedPackages`. Stored as JSON-encoded `[String]` in
+    /// UserDefaults so the picker's Munki tab can read the same key
+    /// and stay in sync without an extra store.
+    @AppStorage("munkiFavorites") private var favoritesRaw: String = "[]"
 
     /// Set when the user clicks Install (or picks a specific version
     /// from the right-click menu). Drives presentation of the host
@@ -163,10 +170,31 @@ struct MunkiBrowserView: View {
     }
 
     private var packageList: some View {
-        List(filteredPackages, selection: $selection) { pkg in
-            row(for: pkg)
-                .tag(pkg.id)
-                .contextMenu { versionsMenu(for: pkg) }
+        // Capture the decoded set in the body context so SwiftUI tracks
+        // the @AppStorage("munkiFavorites") dependency and re-renders
+        // when the user toggles a star. `groupedPackages` already
+        // resolves each name to the newest version — favoriting
+        // "Firefox" gets the current newest Firefox each time.
+        let favs = MunkiFavorites.decode(favoritesRaw)
+        let favoritePkgs = filteredPackages.filter { favs.contains($0.name) }
+        let otherPkgs    = filteredPackages.filter { !favs.contains($0.name) }
+        return List(selection: $selection) {
+            if !favoritePkgs.isEmpty {
+                Section("Favorites") {
+                    ForEach(favoritePkgs) { pkg in
+                        row(for: pkg, isFavorite: true)
+                            .tag(pkg.id)
+                            .contextMenu { versionsMenu(for: pkg) }
+                    }
+                }
+            }
+            Section(favoritePkgs.isEmpty ? "" : "All packages") {
+                ForEach(otherPkgs) { pkg in
+                    row(for: pkg, isFavorite: false)
+                        .tag(pkg.id)
+                        .contextMenu { versionsMenu(for: pkg) }
+                }
+            }
         }
         .listStyle(.inset)
         // Double-click a selection to install — handled via onChange of the
@@ -177,21 +205,36 @@ struct MunkiBrowserView: View {
         // macOS, making single-click selection unresponsive.
     }
 
-    private func row(for pkg: MunkiPkg) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 6) {
-                Text(pkg.resolvedDisplayName).font(.body)
-                Text(pkg.version)
-                    .font(.caption2).foregroundStyle(.secondary)
-                    .padding(.horizontal, 4).padding(.vertical, 1)
-                    .background(Color.secondary.opacity(0.15))
-                    .clipShape(Capsule())
+    private func row(for pkg: MunkiPkg, isFavorite: Bool) -> some View {
+        HStack(spacing: 8) {
+            // Star toggle — favorites a NAME not a version, so the
+            // pinned row tracks the newest version automatically.
+            Button {
+                favoritesRaw = MunkiFavorites.toggling(pkg.name, in: favoritesRaw)
+            } label: {
+                Image(systemName: isFavorite ? "star.fill" : "star")
+                    .foregroundStyle(isFavorite ? .yellow : .secondary.opacity(0.5))
+                    .font(.caption)
+                    .frame(width: 16)
             }
-            HStack(spacing: 6) {
-                if !pkg.catalogs.isEmpty {
-                    Text(pkg.catalogs.joined(separator: ", "))
-                        .font(.caption2).foregroundStyle(.tertiary)
-                        .lineLimit(1)
+            .buttonStyle(.plain)
+            .help(isFavorite ? "Unfavorite \(pkg.resolvedDisplayName)" : "Favorite \(pkg.resolvedDisplayName)")
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(pkg.resolvedDisplayName).font(.body)
+                    Text(pkg.version)
+                        .font(.caption2).foregroundStyle(.secondary)
+                        .padding(.horizontal, 4).padding(.vertical, 1)
+                        .background(Color.secondary.opacity(0.15))
+                        .clipShape(Capsule())
+                }
+                HStack(spacing: 6) {
+                    if !pkg.catalogs.isEmpty {
+                        Text(pkg.catalogs.joined(separator: ", "))
+                            .font(.caption2).foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                    }
                 }
             }
         }
@@ -215,6 +258,12 @@ struct MunkiBrowserView: View {
             }
         }
         Divider()
+        let favs = MunkiFavorites.decode(favoritesRaw)
+        let isFav = favs.contains(pkg.name)
+        Button(isFav ? "Unfavorite \(pkg.resolvedDisplayName)"
+                     : "Favorite \(pkg.resolvedDisplayName)") {
+            favoritesRaw = MunkiFavorites.toggling(pkg.name, in: favoritesRaw)
+        }
         Button("Select") { selection = pkg.id }
     }
 

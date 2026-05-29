@@ -54,6 +54,11 @@ struct PackagePickerSheet: View {
     @State private var showingLocalFilePicker: Bool = false
     @State private var munkiStore = MunkiRepoStore()
 
+    /// Shared with MunkiBrowserView — JSON `[String]` of package
+    /// **names** (not name|version IDs) so a favorite tracks the
+    /// newest version automatically.
+    @AppStorage("munkiFavorites") private var munkiFavoritesRaw: String = "[]"
+
     /// Local is always available (no config needed — operator picks
     /// the file at run time), so the segmented control shows whenever
     /// at least one of the configurable sources is wired. The user's
@@ -533,17 +538,40 @@ struct PackagePickerSheet: View {
                     .font(.callout).foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity).padding(24)
             } else {
-                List(filteredMunki, selection: $selectedMunki) { pkg in
-                    munkiRow(pkg)
-                        .tag(pkg.id)
-                        // simultaneousGesture leaves List's built-in
-                        // single-tap selection intact (a plain
-                        // .onTapGesture intercepts the tap and
-                        // sometimes wedges selection state).
-                        .simultaneousGesture(
-                            TapGesture(count: 2).onEnded { runSelectedMunki() }
-                        )
-                        .contextMenu { munkiVersionsMenu(for: pkg) }
+                // Sectioned list — favorites at the top so the
+                // operator's "I install this all the time" packages
+                // are always in reach. Reads the same @AppStorage
+                // key MunkiBrowserView writes.
+                let favs = MunkiFavorites.decode(munkiFavoritesRaw)
+                let favoriteRows = filteredMunki.filter { favs.contains($0.name) }
+                let otherRows    = filteredMunki.filter { !favs.contains($0.name) }
+                List(selection: $selectedMunki) {
+                    if !favoriteRows.isEmpty {
+                        Section("Favorites") {
+                            ForEach(favoriteRows) { pkg in
+                                munkiRow(pkg, isFavorite: true)
+                                    .tag(pkg.id)
+                                    .simultaneousGesture(
+                                        TapGesture(count: 2).onEnded { runSelectedMunki() }
+                                    )
+                                    .contextMenu { munkiVersionsMenu(for: pkg) }
+                            }
+                        }
+                    }
+                    Section(favoriteRows.isEmpty ? "" : "All packages") {
+                        ForEach(otherRows) { pkg in
+                            munkiRow(pkg, isFavorite: false)
+                                .tag(pkg.id)
+                                // simultaneousGesture leaves List's built-in
+                                // single-tap selection intact (a plain
+                                // .onTapGesture intercepts the tap and
+                                // sometimes wedges selection state).
+                                .simultaneousGesture(
+                                    TapGesture(count: 2).onEnded { runSelectedMunki() }
+                                )
+                                .contextMenu { munkiVersionsMenu(for: pkg) }
+                        }
+                    }
                 }
                 .listStyle(.inset)
             }
@@ -573,6 +601,12 @@ struct PackagePickerSheet: View {
             }
         }
         Divider()
+        let favs = MunkiFavorites.decode(munkiFavoritesRaw)
+        let isFav = favs.contains(pkg.name)
+        Button(isFav ? "Unfavorite \(pkg.resolvedDisplayName)"
+                     : "Favorite \(pkg.resolvedDisplayName)") {
+            munkiFavoritesRaw = MunkiFavorites.toggling(pkg.name, in: munkiFavoritesRaw)
+        }
         Button("Show in detail pane") {
             selectedMunki = pkg.id
         }
@@ -593,8 +627,21 @@ struct PackagePickerSheet: View {
         }
     }
 
-    private func munkiRow(_ pkg: MunkiPkg) -> some View {
+    private func munkiRow(_ pkg: MunkiPkg, isFavorite: Bool) -> some View {
         HStack(alignment: .top, spacing: 10) {
+            // Star toggle — favorites a NAME, so the pinned row
+            // always tracks whatever version is newest in the repo.
+            Button {
+                munkiFavoritesRaw = MunkiFavorites.toggling(pkg.name, in: munkiFavoritesRaw)
+            } label: {
+                Image(systemName: isFavorite ? "star.fill" : "star")
+                    .foregroundStyle(isFavorite ? .yellow : .secondary.opacity(0.5))
+                    .font(.caption)
+                    .frame(width: 16)
+            }
+            .buttonStyle(.plain)
+            .help(isFavorite ? "Unfavorite \(pkg.resolvedDisplayName)" : "Favorite \(pkg.resolvedDisplayName)")
+
             Image(systemName: "cube.box")
                 .font(.body).foregroundStyle(.blue).frame(width: 20)
             VStack(alignment: .leading, spacing: 1) {
