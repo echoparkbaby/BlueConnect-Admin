@@ -24,12 +24,20 @@ struct ConnectCommands: Commands {
                 .keyboardShortcut("4", modifiers: [.command])
                 .disabled(!(actions?.hasTarget ?? false) || !(actions?.hasPackages ?? false))
 
-            Button("Chat…") { actions?.openChat() }
-                .keyboardShortcut("5", modifiers: [.command])
-                .disabled(!(actions?.hasTarget ?? false))
-
             Button("Upload Package to Repo…") { actions?.uploadToRepo() }
                 .keyboardShortcut("u", modifiers: [.command, .shift])
+
+            // Chat lives below the install / upload entries so the
+            // package-management items cluster together at the top.
+            // The host context menu shows only a single Chat button
+            // (default = whoever's at the screen). The "With specific
+            // user…" variant lives here so it's still reachable.
+            Menu("Chat") {
+                Button("With whoever's at the screen") { actions?.openChat() }
+                    .keyboardShortcut("5", modifiers: [.command])
+                Button("With specific user…") { actions?.openChatWithSpecificUser() }
+            }
+            .disabled(!(actions?.hasTarget ?? false))
 
             Button("Erase / Reinstall macOS…") { actions?.eraseInstall() }
                 .keyboardShortcut("e", modifiers: [.command, .shift])

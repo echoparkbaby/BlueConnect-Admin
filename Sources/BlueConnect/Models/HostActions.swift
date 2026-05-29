@@ -89,9 +89,14 @@ struct HostActions {
     /// View → "Customize Row Icons…" — opens the row-icon picker sheet.
     let showCustomizeRowIcons: () -> Void
 
-    /// Connect → "Chat…" — opens the chat window for the current
-    /// target host, addressed to whoever's at the screen.
+    /// Connect → "Chat ▸ With whoever's at the screen" — opens the
+    /// chat window addressed to whoever the host's currently logged
+    /// in console user is.
     let openChat: () -> Void
+    /// Connect → "Chat ▸ With specific user…" — opens the
+    /// ChatTargetUserSheet so the operator can pick a specific
+    /// local account on the host before the chat window appears.
+    let openChatWithSpecificUser: () -> Void
 
     static let none = HostActions(
         hasTarget: false,
@@ -119,7 +124,8 @@ struct HostActions {
         showActivityLog: {},
         showBlockedHosts: {},
         showCustomizeRowIcons: {},
-        openChat: {}
+        openChat: {},
+        openChatWithSpecificUser: {}
     )
 }
 

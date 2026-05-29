@@ -307,6 +307,11 @@ struct ContentView: View {
                     chatController.present(ChatService(host: h, settings: settings, targetUser: ""))
                     openWindow(id: "blueconnect-chat")
                 }
+            },
+            openChatWithSpecificUser: {
+                if let h = target, h.active {
+                    chatTargetSheet = h
+                }
             }
         )
     }
@@ -891,6 +896,10 @@ struct ContentView: View {
                         enabled: h.active,
                         help: "Screen Share (VNC)"
                     ) { runQuickAction(host: h, kind: .vnc) }
+                    // Group 1 → Group 2 boundary: separates remote-
+                    // control actions (SSH/VNC) from file/install
+                    // actions (SCP/Install).
+                    rowDivider
                     PersistentIconButton(
                         storageKey: "scpRowIconSymbol",
                         defaultIcon: "arrow.up.doc.fill",
@@ -898,15 +907,6 @@ struct ContentView: View {
                         enabled: h.active,
                         help: "File Upload (SCP)"
                     ) { runQuickAction(host: h, kind: .scp) }
-                    // Visual gutter between the original three
-                    // connection actions (SSH/VNC/SCP) and the
-                    // installation + GUI-helper actions
-                    // (Install/Chat/Quick Actions). Splits the row
-                    // 3-and-3 instead of reading as a single strip.
-                    Rectangle()
-                        .fill(Color.secondary.opacity(0.35))
-                        .frame(width: 1, height: 16)
-                        .padding(.horizontal, 3)
                     PersistentIconButton(
                         storageKey: "installRowIconSymbol",
                         defaultIcon: "shippingbox.fill",
@@ -914,9 +914,10 @@ struct ContentView: View {
                         enabled: h.active && (hasPackageCatalog || settings.isMunkiRepoConfigured),
                         help: "Install Package"
                     ) { openPackagePicker(for: [h]) }
-                    // Chat first, then Quick Actions — chat is the
-                    // more frequently-reached action when you're
-                    // helping someone, so it gets the closer slot.
+                    // Group 2 → Group 3 boundary: separates file /
+                    // install from communication / automation
+                    // (Chat / Quick Actions).
+                    rowDivider
                     PersistentIconButton(
                         storageKey: "chatRowIconSymbol",
                         defaultIcon: "bubble.left.and.bubble.right.fill",
@@ -1039,18 +1040,13 @@ struct ContentView: View {
                 Button("VNC (Screen Share)")  { openInTerminal(host: h, kind: .vnc) }
                     .disabled(!h.active)
                 Divider()
-                // Chat — opens a persistent bidirectional chat window
-                // with whoever's at the screen on this host. Requires
-                // the GUI Helper to be installed (the chat client is
-                // installed alongside it).
-                Menu("Open Chat") {
-                    Button("With whoever's at the screen") {
-                        chatController.present(ChatService(host: h, settings: settings, targetUser: ""))
-                        openWindow(id: "blueconnect-chat")
-                    }
-                    Button("With specific user…") {
-                        chatTargetSheet = h
-                    }
+                // Single Chat button — defaults to "whoever's at the
+                // screen". "With specific user…" lives in the menu
+                // bar's Connect → Chat submenu instead, keeping the
+                // host context menu compact.
+                Button("Chat") {
+                    chatController.present(ChatService(host: h, settings: settings, targetUser: ""))
+                    openWindow(id: "blueconnect-chat")
                 }
                 .disabled(!h.active)
                 Divider()
@@ -1070,25 +1066,30 @@ struct ContentView: View {
                 }
                 Button("Rename…") { renameTarget = h }
                 Divider()
+                // Install submenu — three slots in install-source
+                // order, repo → catalog → local-file. The "From Repo…"
+                // entry opens the Munki tab of the picker (was named
+                // "From Repo Picker…" / "From Munki Repo…" depending
+                // on settings — both renamed to the simpler "From
+                // Repo…"). "From Catalog…" is the inlined direct
+                // packages list (was "Quick Install (Direct)" — the
+                // word "Direct" was internal jargon). "Local File…"
+                // takes a .pkg / .dmg from the operator's Mac.
+                //
+                // Defer state mutations one runloop tick — context-menu
+                // actions race with the menu's own dismissal animation,
+                // and `openWindow` / sheet presentations get swallowed
+                // without this hop.
                 Menu("Install") {
-                    // Defer state mutations one runloop tick — context-menu
-                    // actions race with the menu's own dismissal animation,
-                    // and `openWindow` / sheet presentations get swallowed
-                    // without this hop. Same trick that fixed the Munki
-                    // browser's right-click "Install latest…" item.
-                    Button("Local .pkg / .dmg…") {
-                        Task { @MainActor in
-                            installFileHost = h
-                            showingInstallFilePicker = true
-                        }
-                    }
-                    .disabled(!h.active)
-                    if let cat = packageCatalog.catalog, !cat.packages.isEmpty {
-                        Button("From Repo Picker…") {
+                    let hasDirect = (packageCatalog.catalog?.packages.isEmpty == false)
+                    if hasDirect || settings.isMunkiRepoConfigured {
+                        Button("From Repo…") {
                             Task { @MainActor in openPackagePicker(for: [h]) }
                         }
                         .disabled(!h.active)
-                        Menu("Quick Install (Direct)") {
+                    }
+                    if let cat = packageCatalog.catalog, !cat.packages.isEmpty {
+                        Menu("From Catalog…") {
                             ForEach(Array(cat.grouped.enumerated()), id: \.offset) { _, section in
                                 if section.group.isEmpty {
                                     ForEach(section.items) { pkg in
@@ -1112,35 +1113,15 @@ struct ContentView: View {
                             }
                         }
                         .disabled(!h.active)
-                    } else if settings.isMunkiRepoConfigured {
-                        // No Direct catalog, but Munki is. Surface a shortcut
-                        // straight to the Munki tab of the picker.
-                        Button("From Munki Repo…") {
-                            Task { @MainActor in openPackagePicker(for: [h]) }
-                        }
-                        .disabled(!h.active)
                     }
+                    Button("Local File…") {
+                        Task { @MainActor in
+                            installFileHost = h
+                            showingInstallFilePicker = true
+                        }
+                    }
+                    .disabled(!h.active)
                 }
-                Menu("Software Inventory") {
-                    if settings.isMunkiReportAPIConfigured {
-                        Button("MunkiReport Stats…") {
-                            munkiReportInventoryHost = h
-                        }
-                        .disabled((h.serialnum ?? "").isEmpty)
-                    }
-                    if !settings.munkiReportURL.isEmpty {
-                        Button("Open in MunkiReport (browser)") {
-                            openMunkiReport(for: h)
-                        }
-                        .disabled((h.serialnum ?? "").isEmpty)
-                    }
-                    if settings.isMunkiRepoConfigured {
-                        Button("Browse Munki Repo…") {
-                            showingMunkiBrowser = true
-                        }
-                    }
-                }
-                .disabled(settings.munkiReportURL.isEmpty && !settings.isMunkiRepoConfigured)
                 Divider()
                 Menu("Danger Zone") {
                     Button("Erase / Reinstall macOS…", role: .destructive) {
@@ -1251,6 +1232,17 @@ struct ContentView: View {
             return DragPayload.hosts(Array(selection))
         }
         return DragPayload.hosts([host.blueskyid])
+    }
+
+    /// Vertical gutter rendered between groups of row icons in the
+    /// Connect column. Two of these appear today: between
+    /// SSH/VNC and SCP/Install, and between SCP/Install and
+    /// Chat/Quick Actions.
+    private var rowDivider: some View {
+        Rectangle()
+            .fill(Color.secondary.opacity(0.35))
+            .frame(width: 1, height: 16)
+            .padding(.horizontal, 3)
     }
 
     private var hasPackageCatalog: Bool {
