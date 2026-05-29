@@ -177,7 +177,15 @@ final class ChatService: ObservableObject, Identifiable {
                 let ver = s.dropFirst("MACOS_TOO_OLD:".count)
                 msg = "Chat requires macOS 14+. \(host.displayName) is on macOS \(ver) — upgrade the host or skip chat for this one."
             default:
-                msg = "Unable to prepare \(host.displayName) for chat (\(probe.stderr.prefix(200))). Re-run \"Setup: Install GUI Helper\"."
+                // SSH auth failure (status 255, stderr contains
+                // "Permission denied") means the bluesky_admin
+                // pubkey isn't in the host's ladmin
+                // authorized_keys — not a chat-setup problem.
+                if probe.stderr.localizedCaseInsensitiveContains("permission denied") {
+                    msg = "Can't SSH into \(host.displayName) as ladmin — the bluesky_admin pubkey isn't authorized on the host. Append `~/.ssh/bluesky_admin.pub` to `/Users/ladmin/.ssh/authorized_keys` on \(host.displayName)."
+                } else {
+                    msg = "Unable to prepare \(host.displayName) for chat (\(probe.stderr.prefix(200))). Re-run \"Setup: Install GUI Helper\"."
+                }
             }
             appendSystem(msg)
             statusText = "Setup needed"
