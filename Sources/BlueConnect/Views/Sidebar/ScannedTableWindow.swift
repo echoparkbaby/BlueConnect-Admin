@@ -9,6 +9,11 @@ struct ScannedTableWindow: View {
     @Environment(NetworkScanner.self) private var scanner
     @Environment(LocalRendezvousBrowser.self) private var rendezvous
     @EnvironmentObject private var settings: SettingsStore
+    /// Used by the UniFi profile dropdown's "Manage Profiles…" item
+    /// to jump straight to Settings → Network. We seed
+    /// `settingsSelection` first so the Settings window opens on
+    /// the right pane (same trick the Terminal profile picker uses).
+    @Environment(\.openSettings) private var openSettings
     @State private var sortOrder: [KeyPathComparator<Row>] = [
         KeyPathComparator(\.dnsName, order: .forward)
     ]
@@ -194,8 +199,10 @@ struct ScannedTableWindow: View {
     /// visible: with zero profiles it's an entry-point to Settings
     /// (label "Not configured"); with one it's a status tile that
     /// also offers Manage; with two or more it's a real switcher.
-    /// "Manage Profiles…" routes through `NSApp` so we don't have
-    /// to thread `openSettings` through this view.
+    /// "Manage Profiles…" writes the `settingsSelection` AppStorage
+    /// key BEFORE calling `openSettings()` so the Settings window
+    /// opens directly on the Network pane (the same dance the
+    /// Terminal profile picker's Customize button does).
     private var unifiProfilePicker: some View {
         let profiles = settings.unifiProfiles
         let active = settings.activeUnifiProfile
@@ -216,7 +223,8 @@ struct ScannedTableWindow: View {
                 Divider()
             }
             Button("Manage Profiles…") {
-                NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+                UserDefaults.standard.set("unifi", forKey: "settingsSelection")
+                openSettings()
             }
         } label: {
             HStack(spacing: 4) {
