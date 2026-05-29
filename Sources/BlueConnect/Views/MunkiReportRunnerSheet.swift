@@ -192,7 +192,15 @@ struct MunkiReportRunnerSheet: View {
     /// `sudo -S`, pipe the password through stdin. -T (not -t) keeps
     /// stdin pure so sudo's stdin password read works cleanly without
     /// a remote PTY echo getting in the way.
-    private func runRunner(password pw: String) async {
+    ///
+    /// `nonisolated` is critical: SwiftUI Views are @MainActor by
+    /// default, so without this annotation the entire function — and
+    /// its blocking `try p.run()` / `p.waitUntilExit()` calls —
+    /// executes on the main thread. That blocks main for the whole
+    /// run, beach-balls the UI, AND queues every `MainActor.run`
+    /// log-append until the process exits, producing the "log shows
+    /// up all at once at the end" symptom.
+    nonisolated private func runRunner(password pw: String) async {
         // Snapshot every settings value we need before hopping off the
         // main actor — SettingsStore isn't Sendable.
         let server  = await MainActor.run { settings.serverFqdn }
