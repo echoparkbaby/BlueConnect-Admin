@@ -170,12 +170,12 @@ struct ScannedTableWindow: View {
                     .buttonStyle(.plain)
                 }
             }
+            unifiProfilePicker
             if scanner.isScanning {
                 ProgressView().controlSize(.small)
                 Text("\(scanner.progress)/\(scanner.total)")
                     .font(.caption.monospaced()).foregroundStyle(.secondary)
             }
-            unifiProfilePicker
             Button {
                 Task { await runScan() }
             } label: {
@@ -190,40 +190,48 @@ struct ScannedTableWindow: View {
         .padding(.horizontal, 16).padding(.vertical, 10)
     }
 
-    /// Profile switcher shown when 2+ UniFi profiles exist. With one
-    /// (or zero) profiles the menu would be a single-option dropdown,
-    /// so we hide it — the scan window's busy enough already. The
-    /// "Manage profiles…" tail item routes through `NSApp` so we
-    /// don't have to thread `openSettings` through this view.
-    @ViewBuilder
+    /// UniFi profile switcher next to the search field. Always
+    /// visible: with zero profiles it's an entry-point to Settings
+    /// (label "Not configured"); with one it's a status tile that
+    /// also offers Manage; with two or more it's a real switcher.
+    /// "Manage Profiles…" routes through `NSApp` so we don't have
+    /// to thread `openSettings` through this view.
     private var unifiProfilePicker: some View {
         let profiles = settings.unifiProfiles
-        if profiles.count >= 2 {
-            Menu {
+        let active = settings.activeUnifiProfile
+        let label: String = active?.label ?? (profiles.isEmpty ? "Not configured" : "UniFi")
+        return Menu {
+            if profiles.isEmpty {
+                Text("No UniFi profiles configured")
+            } else {
                 ForEach(profiles) { p in
                     Button {
                         settings.activeUnifiProfileID = p.id
                     } label: {
-                        Label(p.label, systemImage: settings.activeUnifiProfile?.id == p.id
+                        Label(p.label, systemImage: active?.id == p.id
                               ? "checkmark"
                               : "")
                     }
                 }
                 Divider()
-                Button("Manage Profiles…") {
-                    NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-                }
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "network")
-                    Text(settings.activeUnifiProfile?.label ?? "UniFi")
-                        .lineLimit(1)
-                }
             }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-            .help("Switch UniFi controller profile")
+            Button("Manage Profiles…") {
+                NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "network")
+                    .foregroundStyle(active == nil ? .secondary : .primary)
+                Text(label)
+                    .lineLimit(1)
+                    .foregroundStyle(active == nil ? .secondary : .primary)
+            }
         }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help(profiles.isEmpty
+              ? "Add a UniFi controller profile to enrich scan results"
+              : "Switch UniFi controller profile")
     }
 
     private var headerSubtitle: String {
