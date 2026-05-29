@@ -1039,6 +1039,17 @@ struct ContentView: View {
                     .disabled(!h.active)
                 Button("VNC (Screen Share)")  { openInTerminal(host: h, kind: .vnc) }
                     .disabled(!h.active)
+                // Install — flat single button (no submenu). Opens the
+                // picker window with all three source tabs (Munki /
+                // Remote / Local), so all install paths are reachable
+                // without nesting menus in the context menu. Sits
+                // directly under the connection items because Install
+                // is the next-most-common destructive-ish action after
+                // SSH / VNC.
+                Button("Install…") {
+                    Task { @MainActor in openPackagePicker(for: [h]) }
+                }
+                .disabled(!h.active)
                 Divider()
                 // Single Chat button — defaults to "whoever's at the
                 // screen". "With specific user…" lives in the menu
@@ -1066,63 +1077,10 @@ struct ContentView: View {
                 }
                 Button("Rename…") { renameTarget = h }
                 Divider()
-                // Install submenu — three slots in install-source
-                // order, repo → catalog → local-file. The "From Repo…"
-                // entry opens the Munki tab of the picker (was named
-                // "From Repo Picker…" / "From Munki Repo…" depending
-                // on settings — both renamed to the simpler "From
-                // Repo…"). "From Catalog…" is the inlined direct
-                // packages list (was "Quick Install (Direct)" — the
-                // word "Direct" was internal jargon). "Local File…"
-                // takes a .pkg / .dmg from the operator's Mac.
-                //
-                // Defer state mutations one runloop tick — context-menu
-                // actions race with the menu's own dismissal animation,
-                // and `openWindow` / sheet presentations get swallowed
-                // without this hop.
-                Menu("Install…") {
-                    let hasRemote = (packageCatalog.catalog?.packages.isEmpty == false)
-                    if hasRemote || settings.isMunkiRepoConfigured {
-                        Button("From Repo…") {
-                            Task { @MainActor in openPackagePicker(for: [h]) }
-                        }
-                        .disabled(!h.active)
-                    }
-                    if let cat = packageCatalog.catalog, !cat.packages.isEmpty {
-                        Menu("From Remote…") {
-                            ForEach(Array(cat.grouped.enumerated()), id: \.offset) { _, section in
-                                if section.group.isEmpty {
-                                    ForEach(section.items) { pkg in
-                                        Button {
-                                            Task { @MainActor in installPackage(pkg, on: h) }
-                                        } label: {
-                                            Label(pkg.name, systemImage: pkg.resolvedIcon)
-                                        }
-                                    }
-                                } else {
-                                    Section(section.group) {
-                                        ForEach(section.items) { pkg in
-                                            Button {
-                                                Task { @MainActor in installPackage(pkg, on: h) }
-                                            } label: {
-                                                Label(pkg.name, systemImage: pkg.resolvedIcon)
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        .disabled(!h.active)
-                    }
-                    Button("Local File…") {
-                        Task { @MainActor in
-                            installFileHost = h
-                            showingInstallFilePicker = true
-                        }
-                    }
-                    .disabled(!h.active)
-                }
-                Divider()
+                // (Install moved up — see the flat "Install…" button
+                // just under SSH / VNC. Source picking (Munki /
+                // Remote / Local) happens inside the picker window
+                // now, not via a nested menu here.)
                 Menu("Danger Zone") {
                     Button("Erase / Reinstall macOS…", role: .destructive) {
                         eraseInstallTarget = h

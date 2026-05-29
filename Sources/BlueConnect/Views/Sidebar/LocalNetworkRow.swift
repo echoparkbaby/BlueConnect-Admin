@@ -64,6 +64,15 @@ struct LocalNetworkRow: View {
             if service.hasVNC {
                 Button("VNC (Screen Share)") { connectVNC() }
             }
+            // Install at position 3 (just under SSH / VNC) so the
+            // most-used actions cluster at the top. Single button —
+            // source selection (Munki / Remote / Local) happens
+            // inside the picker, not as a context-menu submenu.
+            if service.hasSSH {
+                Button("Install…") {
+                    Task { @MainActor in openRepoPicker() }
+                }
+            }
             // SCP intentionally omitted from the context menu — file
             // uploads are driven by drag-and-drop onto the row.
 
@@ -73,24 +82,6 @@ struct LocalNetworkRow: View {
                     Task { @MainActor in
                         pendingCommand = ""
                         showingRunCommand = true
-                    }
-                }
-                Divider()
-                // Install — mirrors the main host context menu but routes
-                // through `installer.prepareDirect(…)` so SSH/scp goes
-                // straight over the LAN with no BSC ProxyCommand.
-                Menu("Install") {
-                    Button("Local .pkg / .dmg…") {
-                        Task { @MainActor in showingLocalFilePicker = true }
-                    }
-                    if let cat = packageCatalog.catalog, !cat.packages.isEmpty {
-                        Button("From Repo Picker…") {
-                            Task { @MainActor in openRepoPicker() }
-                        }
-                    } else if settings.isMunkiRepoConfigured {
-                        Button("From Munki Repo…") {
-                            Task { @MainActor in openRepoPicker() }
-                        }
                     }
                 }
                 // Quick Actions — same enabled set as the BSC host menu;
