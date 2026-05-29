@@ -1,4 +1,5 @@
 import SwiftUI
+import Darwin   // raw POSIX read(2) — readabilityHandler batches on macOS
 
 /// Sheet that runs `munkireport-runner` on the inventory's host. The
 /// password is collected here (per the operator's "no NOPASSWD"
@@ -242,12 +243,25 @@ struct MunkiReportRunnerSheet: View {
         p.standardOutput = outPipe
         p.standardError  = outPipe
 
-        outPipe.fileHandleForReading.readabilityHandler = { fh in
-            let data = fh.availableData
-            guard !data.isEmpty,
-                  let chunk = String(data: data, encoding: .utf8) else { return }
-            Task { @MainActor in
-                appendToLog(chunk)
+        // NOTE: We deliberately do NOT use `readabilityHandler` here.
+        // On macOS, Foundation's FileHandle.readabilityHandler batches
+        // pipe reads aggressively — the handler often doesn't fire
+        // until the writer closes the pipe, even when bytes are
+        // available. Result: the entire runner log lands at the end
+        // instead of streaming. Use a detached Task doing raw POSIX
+        // `read(2)` on the file descriptor — that returns the instant
+        // data lands in the kernel pipe buffer.
+        let readFD = outPipe.fileHandleForReading.fileDescriptor
+        Task.detached(priority: .userInitiated) {
+            var buf = [UInt8](repeating: 0, count: 4096)
+            while true {
+                let n = buf.withUnsafeMutableBufferPointer { ptr -> Int in
+                    Darwin.read(readFD, ptr.baseAddress, ptr.count)
+                }
+                if n <= 0 { break }
+                let chunk = String(bytes: buf.prefix(n), encoding: .utf8) ?? ""
+                guard !chunk.isEmpty else { continue }
+                await MainActor.run { appendToLog(chunk) }
             }
         }
 
@@ -270,7 +284,9 @@ struct MunkiReportRunnerSheet: View {
         try? inPipe.fileHandleForWriting.close()
 
         p.waitUntilExit()
-        outPipe.fileHandleForReading.readabilityHandler = nil
+        // The detached read loop above breaks when read() returns 0
+        // (pipe closed by the child exiting), so no explicit teardown
+        // is needed here.
         let exit = p.terminationStatus
         await MainActor.run {
             process = nil
