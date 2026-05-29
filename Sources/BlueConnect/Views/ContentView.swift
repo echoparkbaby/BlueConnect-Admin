@@ -1470,8 +1470,16 @@ struct ContentView: View {
     }
 
     private func installPackage(_ pkg: Package, on service: LocalService) {
-        guard let cat = packageCatalog.catalog,
-              let cmd = cat.remoteCommand(for: pkg) else { return }
+        guard let cat = packageCatalog.catalog else {
+            Log.warn("Install", "installPackage(Local) → no catalog loaded; pkg=\(pkg.name)")
+            return
+        }
+        guard let cmd = cat.remoteCommand(for: pkg) else {
+            Log.warn("Install", "installPackage(Local) → no remoteCommand for pkg=\(pkg.name) file=\(pkg.file ?? "-") cmd=\(pkg.command ?? "-")")
+            return
+        }
+        Log.info("Install",
+                 "installPackage(Local) → \(service.name):\(service.sshPort ?? -1) cmd=\(cmd.prefix(120))")
         runDirectRemoteCommand(cmd, label: "install: \(pkg.name)", on: service)
     }
 
@@ -1513,9 +1521,14 @@ struct ContentView: View {
 
     private func runDirectRemoteCommand(_ command: String, label: String,
                                         on service: LocalService) {
-        guard let port = service.sshPort else { return }
+        guard let port = service.sshPort else {
+            Log.warn("Install", "runDirectRemoteCommand → no sshPort on service=\(service.name)")
+            return
+        }
         let cmd = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cmd.isEmpty else { return }
+        Log.info("Install",
+                 "runDirectRemoteCommand → ssh \(resolvedRemoteUser(for: service))@\(service.hostname):\(port) label=\(label)")
         let svc = ConnectionService(
             server: settings.serverFqdn,
             adminKeyPath: settings.expandedKeyPath,
@@ -1546,6 +1559,8 @@ struct ContentView: View {
     }
 
     private func handlePendingDirectInstall(_ pkg: Package) {
+        Log.info("Install",
+                 "handlePendingDirectInstall pkg=\(pkg.name) hosts=\(packagePicker.hosts.count) localTarget=\(packagePicker.localTarget?.name ?? "-")")
         if let localTarget = packagePicker.localTarget {
             installPackage(pkg, on: localTarget)
             packagePicker.pendingDirectInstall = nil
@@ -1561,6 +1576,8 @@ struct ContentView: View {
     }
 
     private func handlePendingMunkiInstall(_ pkg: MunkiPkg) {
+        Log.info("Install",
+                 "handlePendingMunkiInstall pkg=\(pkg.name) hosts=\(packagePicker.hosts.count) localTarget=\(packagePicker.localTarget?.name ?? "-")")
         if let localTarget = packagePicker.localTarget {
             installMunkiPackage(pkg, on: localTarget)
             packagePicker.pendingMunkiInstall = nil

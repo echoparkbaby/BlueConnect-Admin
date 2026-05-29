@@ -186,7 +186,7 @@ struct MunkiReportInventoryContent: View {
                 let aAdm = a.admin?.isOn ?? false
                 let bAdm = b.admin?.isOn ?? false
                 if aAdm != bAdm { return aAdm && !bAdm }
-                return (a.uid ?? Int.max) < (b.uid ?? Int.max)
+                return (a.uidValue ?? Int.max) < (b.uidValue ?? Int.max)
             }
             sectionCard(title: "Local Users (\(users.count))",
                         systemImage: "person.2.fill") {
@@ -203,7 +203,7 @@ struct MunkiReportInventoryContent: View {
                                 Text(u.shortName)
                                     .font(compact ? .caption : .callout)
                                     .lineLimit(1)
-                                if let uid = u.uid {
+                                if let uid = u.uidValue {
                                     Text("uid \(uid)")
                                         .font(.caption2.monospaced())
                                         .foregroundStyle(.secondary)

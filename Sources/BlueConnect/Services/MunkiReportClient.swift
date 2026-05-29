@@ -311,9 +311,12 @@ struct MRNetworkInterface: Codable, Hashable, Identifiable {
 /// + local admins, not Apple's `_*` daemons. `last_login_ts` is MR's
 /// `last_login_timestamp` (Unix epoch as bigint, often null).
 struct MRUser: Codable, Hashable, Identifiable {
-    var id: String { "\(uid ?? 0)|\(name ?? username ?? "")" }
-    let uid: Int?
-    let gid: Int?
+    var id: String { "\(uidValue ?? 0)|\(name ?? username ?? "")" }
+    // MR stores `unique_id` / `primary_group_id` as varchar, so the
+    // PHP endpoint returns them as JSON strings ("501"). MRFlexInt
+    // accepts either int or string and exposes the parsed Int via .value.
+    let uid: MRFlexInt?
+    let gid: MRFlexInt?
     let name: String?
     let username: String?
     let realname: String?
@@ -323,10 +326,13 @@ struct MRUser: Codable, Hashable, Identifiable {
     let ssh_access: MRFlexBool?
     let last_login_ts: Int?
 
+    var uidValue: Int? { uid?.value }
+    var gidValue: Int? { gid?.value }
+
     var shortName: String {
         if let n = name, !n.isEmpty { return n }
         if let u = username, !u.isEmpty { return u }
-        return "uid \(uid ?? 0)"
+        return "uid \(uidValue ?? 0)"
     }
 
     var lastLoginDate: Date? {
