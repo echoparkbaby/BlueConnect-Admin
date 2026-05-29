@@ -46,6 +46,10 @@ struct PackagePickerSheet: View {
 
     @State private var source: Source = .munki
     @State private var query: String = ""
+    /// Drives auto-focus into the filter field of whichever tab is
+    /// active. Bound to both the Remote and Munki tab's TextField so
+    /// switching tabs re-routes the focus to the new field.
+    @FocusState private var searchFocused: Bool
     @State private var selected: Package?
     @State private var selectedMunki: MunkiPkg.ID?
     @State private var pendingDestructive: Package?
@@ -298,6 +302,37 @@ struct PackagePickerSheet: View {
                 source = !allPackages.isEmpty ? .remote : .local
             }
         }
+        .onAppear {
+            // Drop focus straight into the search field so the
+            // operator can start typing the package name without
+            // first clicking through to it. The one-runloop hop is
+            // required because the TextField isn't fully mounted on
+            // the first onAppear pass (SwiftUI sets focus state
+            // before the first responder chain is wired up).
+            DispatchQueue.main.async { searchFocused = true }
+        }
+        .onChange(of: source) { _, _ in
+            // Switching tabs re-routes the cursor to the new tab's
+            // own search field. Local has no search field, so the
+            // focus binding becomes a no-op there.
+            DispatchQueue.main.async { searchFocused = true }
+        }
+        .background {
+            // Hidden ⌘⇧] / ⌘⇧[ tab cycler. SwiftUI's
+            // `.keyboardShortcut` on an invisible Button is the
+            // standard way to add a window-level shortcut without
+            // displaying a menu item.
+            Button("Next tab") { cycleSource(forward: true) }
+                .keyboardShortcut("]", modifiers: [.command, .shift])
+                .opacity(0)
+                .frame(width: 0, height: 0)
+                .accessibilityHidden(true)
+            Button("Previous tab") { cycleSource(forward: false) }
+                .keyboardShortcut("[", modifiers: [.command, .shift])
+                .opacity(0)
+                .frame(width: 0, height: 0)
+                .accessibilityHidden(true)
+        }
         .overlay {
             if isDropping {
                 ZStack {
@@ -388,6 +423,7 @@ struct PackagePickerSheet: View {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                 TextField("Filter by name, group, or file", text: $query)
                     .textFieldStyle(.plain)
+                    .focused($searchFocused)
                 if !query.isEmpty {
                     Button {
                         query = ""
@@ -504,6 +540,7 @@ struct PackagePickerSheet: View {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                 TextField("Filter Munki packages", text: $query)
                     .textFieldStyle(.plain)
+                    .focused($searchFocused)
                 if !query.isEmpty {
                     Button { query = "" } label: {
                         Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
@@ -765,7 +802,11 @@ struct PackagePickerSheet: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .simultaneousGesture(TapGesture(count: 2).onEnded { runSelected() })
+        // Note: no `.simultaneousGesture(TapGesture(count: 2))`. The
+        // earlier double-click-to-install gesture raced with the
+        // Button's single-tap so selection lagged the click — the
+        // highlighted row didn't match what the footer/preview showed.
+        // The footer Install button is the explicit commit path.
     }
 
     private var footer: some View {
@@ -849,6 +890,19 @@ struct PackagePickerSheet: View {
     /// LocalNetworkRow opens the picker.
     private var hasInstallTarget: Bool {
         !hosts.isEmpty || localTargetName != nil
+    }
+
+    /// Move the active tab one step forward or backward through
+    /// `availableSources`, wrapping at the ends. Powers the
+    /// ⌘⇧] / ⌘⇧[ keyboard cycle.
+    private func cycleSource(forward: Bool) {
+        let sources = availableSources
+        guard sources.count > 1,
+              let idx = sources.firstIndex(of: source) else { return }
+        let next = forward
+            ? (idx + 1) % sources.count
+            : (idx - 1 + sources.count) % sources.count
+        source = sources[next]
     }
 
     private func runSelected() {
