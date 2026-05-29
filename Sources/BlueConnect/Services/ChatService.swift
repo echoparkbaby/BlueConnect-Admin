@@ -127,6 +127,9 @@ final class ChatService: ObservableObject, Identifiable {
         if [ ! -x "/usr/local/bin/blueconnect-chat" ]; then \
           echo "MISSING_CHAT_BINARY"; exit 1; \
         fi; \
+        if ! pgrep -f blueconnect-gui-helper >/dev/null 2>&1; then \
+          echo "HELPER_NOT_RUNNING"; exit 1; \
+        fi; \
         echo "OK"
         """#
         let probe = await runShellCaptured(probeCmd)
@@ -136,6 +139,8 @@ final class ChatService: ObservableObject, Identifiable {
             switch out {
             case "MISSING_HELPER":
                 msg = "GUI Helper not installed on \(host.displayName). Right-click the host → Quick Actions → Miscellaneous → \"Setup: Install GUI Helper\" and try again."
+            case "HELPER_NOT_RUNNING":
+                msg = "GUI Helper is installed on \(host.displayName) but isn't running in the console user's session. This usually happens when the helper was installed AFTER the user logged in — LaunchAgents only bootstrap at next login. Either have the user log out and back in, or re-run \"Setup: Install GUI Helper\" (it forcibly bootstraps the agent into the current session)."
             case "MISSING_CHAT_DIR":
                 msg = "The chat directory hasn't been set up on \(host.displayName) (likely installed before the chat feature shipped). Re-run \"Setup: Install GUI Helper\" on this Mac — it's idempotent and will add the missing /chat folder."
             case "MISSING_CHAT_BINARY":
@@ -187,8 +192,29 @@ final class ChatService: ObservableObject, Identifiable {
     /// Public so the ChatWindow header's Clear button can call it.
     func clearTranscript() async {
         let dir = "/Library/Application Support/BlueConnect/chat/sessions/\(sessionID)"
-        let cmd = "rm -rf \(shellQuote(dir))/admin/*.txt \(shellQuote(dir))/user/*.txt 2>/dev/null; mkdir -p \(shellQuote(dir))/admin \(shellQuote(dir))/user; chmod 0777 \(shellQuote(dir))/admin \(shellQuote(dir))/user 2>/dev/null || true"
-        _ = await runShell(cmd)
+        let q = shellQuote(dir)
+        // `find -delete` over a glob `rm` because:
+        //   1. It's robust to dotfiles, weird names, missing dirs.
+        //   2. We capture stderr per-file, so if a file can't be
+        //      removed (perm-denied, parent dir's sticky bit set, etc.)
+        //      the user actually sees that — instead of the previous
+        //      `2>/dev/null; ...; || true` which always reported
+        //      success even when nothing was deleted.
+        // The earlier version also discarded `runShell`'s return value
+        // outright, so the local UI cleared even when the remote
+        // wiped nothing — reopen then re-fetched the still-present
+        // files and the user saw "the history came back".
+        let rmCmd = "find \(q)/admin \(q)/user -type f -name '*.txt' -delete 2>&1"
+        let result = await runShellCaptured(rmCmd)
+        if result.status != 0 {
+            let detail = result.stderr.isEmpty ? result.stdout : result.stderr
+            appendSystem("Couldn't clear remote chat history (exit \(result.status)). \(detail.prefix(200))")
+            return
+        }
+        // Re-assert 0777 on the session dirs in case a re-create came
+        // back with stricter umask. Best-effort; failure here is fine
+        // because the next start()/send() will recreate them anyway.
+        _ = await runShell("mkdir -p \(q)/admin \(q)/user; chmod 0777 \(q) \(q)/admin \(q)/user 2>/dev/null || true")
         messages.removeAll()
         seenUserFilenames.removeAll()
         appendSystem("Chat history cleared.")
