@@ -205,11 +205,20 @@ struct MunkiReportRunnerSheet: View {
         //   1. Verify the runner script exists & is executable.
         //   2. Run it under sudo -S (password from stdin) with -p '' so
         //      no prompt string is echoed into the log.
-        //   3. Merge stderr into stdout so a single readabilityHandler
-        //      catches everything.
+        //   3. Wrap the runner in `/usr/bin/script -q /dev/null …` so
+        //      the runner's stdout sees a PTY and line-buffers instead
+        //      of waiting for an 8 KB pipe block to fill. Without the
+        //      PTY wrap, output only arrives when the runner exits and
+        //      flushes — the operator saw a blank log for the entire
+        //      run, then everything at once at the end. Setting
+        //      PYTHONUNBUFFERED=1 helps for any Python-based module
+        //      the runner spawns (MR's collectors are mostly Python).
+        //   4. Merge stderr into stdout so a single readabilityHandler
+        //      catches everything. `script` already merges them via
+        //      the PTY, so the trailing `2>&1` is belt-and-suspenders.
         let remote = """
         if [ -x /usr/local/munkireport/munkireport-runner ]; then \
-          sudo -S -p '' /usr/local/munkireport/munkireport-runner 2>&1; \
+          sudo -S -p '' env PYTHONUNBUFFERED=1 /usr/bin/script -q /dev/null /usr/local/munkireport/munkireport-runner 2>&1; \
         else \
           echo "munkireport-runner not found at /usr/local/munkireport/munkireport-runner — is MunkiReport installed?"; exit 1; \
         fi
@@ -276,7 +285,14 @@ struct MunkiReportRunnerSheet: View {
 
     @MainActor
     private func appendToLog(_ chunk: String) {
-        log.append(chunk)
+        // BSD `script` emits ^D (EOT, 0x04) when the wrapped child
+        // closes its PTY, and the PTY itself uses `\r\n` line endings.
+        // Strip both so the operator's log reads naturally.
+        let cleaned = chunk
+            .replacingOccurrences(of: "\u{04}", with: "")
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r",   with: "\n")
+        log.append(cleaned)
         // Cap to ~16 KB so a chatty runner can't make the sheet eat
         // memory; keep the tail.
         if log.count > 16_384 {
