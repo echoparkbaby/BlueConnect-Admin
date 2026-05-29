@@ -783,22 +783,51 @@ struct PackagePickerSheet: View {
             HStack(alignment: .top, spacing: 10) {
                 Image(systemName: pkg.resolvedIcon)
                     .font(.body)
-                    .foregroundStyle(pkg.isDestructive ? Color.orange : Color.accentColor)
+                    // On selection the row background becomes a
+                    // saturated accent color; swap the leading icon
+                    // to white so it stays legible. Destructive
+                    // rows keep their orange accent regardless.
+                    .foregroundStyle(pkg.isDestructive
+                                     ? Color.orange
+                                     : (isSelected ? Color.white : Color.accentColor))
                     .frame(width: 20)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(pkg.name).font(.callout)
+                    Text(pkg.name)
+                        .font(.callout)
+                        .foregroundStyle(isSelected ? Color.white : Color.primary)
                     if let d = pkg.description, !d.isEmpty {
-                        Text(d).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                        Text(d).font(.caption)
+                            .foregroundStyle(isSelected
+                                             ? Color.white.opacity(0.85)
+                                             : Color.secondary)
+                            .lineLimit(2)
                     } else if let f = pkg.file {
-                        Text(f).font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1)
+                        Text(f).font(.caption.monospaced())
+                            .foregroundStyle(isSelected
+                                             ? Color.white.opacity(0.85)
+                                             : Color.secondary)
+                            .lineLimit(1)
                     } else if pkg.command != nil {
-                        Text("Shell command").font(.caption).foregroundStyle(.secondary).italic()
+                        Text("Shell command")
+                            .font(.caption).italic()
+                            .foregroundStyle(isSelected
+                                             ? Color.white.opacity(0.85)
+                                             : Color.secondary)
                     }
                 }
                 Spacer()
             }
-            .padding(.horizontal, 14).padding(.vertical, 8)
-            .background(Rectangle().fill(isSelected ? Color.accentColor.opacity(0.20) : Color.clear))
+            .padding(.horizontal, 10).padding(.vertical, 6)
+            // Inset rounded-rect fill mirrors the macOS .inset List
+            // selection style used by the Munki tab. 6pt corner
+            // radius matches AppKit's NSTableView selection on
+            // Ventura+; the 4pt horizontal inset is the same gutter
+            // SwiftUI's List uses around each row.
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(isSelected ? Color.accentColor : Color.clear)
+                    .padding(.horizontal, 4)
+            )
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
