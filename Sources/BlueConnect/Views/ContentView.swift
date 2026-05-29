@@ -923,7 +923,7 @@ struct ContentView: View {
                         defaultIcon: "bubble.left.and.bubble.right.fill",
                         color: .teal,
                         enabled: h.active,
-                        help: "Open Chat"
+                        help: "Chat"
                     ) {
                         chatController.present(ChatService(host: h, settings: settings, targetUser: ""))
                         openWindow(id: "blueconnect-chat")
@@ -1080,16 +1080,16 @@ struct ContentView: View {
                 // actions race with the menu's own dismissal animation,
                 // and `openWindow` / sheet presentations get swallowed
                 // without this hop.
-                Menu("Install") {
-                    let hasDirect = (packageCatalog.catalog?.packages.isEmpty == false)
-                    if hasDirect || settings.isMunkiRepoConfigured {
+                Menu("Install…") {
+                    let hasRemote = (packageCatalog.catalog?.packages.isEmpty == false)
+                    if hasRemote || settings.isMunkiRepoConfigured {
                         Button("From Repo…") {
                             Task { @MainActor in openPackagePicker(for: [h]) }
                         }
                         .disabled(!h.active)
                     }
                     if let cat = packageCatalog.catalog, !cat.packages.isEmpty {
-                        Menu("From Catalog…") {
+                        Menu("From Remote…") {
                             ForEach(Array(cat.grouped.enumerated()), id: \.offset) { _, section in
                                 if section.group.isEmpty {
                                     ForEach(section.items) { pkg in

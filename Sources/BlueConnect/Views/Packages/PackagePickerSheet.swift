@@ -5,11 +5,12 @@ import UniformTypeIdentifiers
 /// one to install on the targeted hosts. Triggered by right-click →
 /// "Install Package…" or the Connect → Install Package… (⌘4) command.
 ///
-/// Two sources are now offered side-by-side via a segmented control at
-/// the top: **Direct** = the JSON-catalog HTTPS repo (`Settings → Package
-/// Repo → Repo URL`), **Munki** = the Wasabi/S3 Munki repo. The selector
-/// only appears when both are configured; otherwise the sheet shows the
-/// single configured source without a chooser.
+/// Three sources are offered side-by-side via a segmented control at
+/// the top: **Munki** = the Wasabi/S3 Munki repo, **Remote** = the JSON-
+/// catalog HTTPS repo (`Settings → Package Repo → Repo URL`), and
+/// **Local** = an ad-hoc `.pkg` / `.dmg` / `.app` the operator picks
+/// from disk at run time. Local is always available; Munki and Remote
+/// appear only when their respective settings are configured.
 struct PackagePickerSheet: View {
     let hosts: [BlueSkyHost]
     /// Set when the picker is opened from a Local Network row instead of
@@ -32,12 +33,13 @@ struct PackagePickerSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     enum Source: String, CaseIterable, Identifiable {
-        case munki, direct
+        case munki, remote, local
         var id: String { rawValue }
         var label: String {
             switch self {
-            case .munki:  return "Munki Repo"
-            case .direct: return "Direct"
+            case .munki:  return "Munki"
+            case .remote: return "Remote"
+            case .local:  return "Local"
             }
         }
     }
@@ -49,22 +51,32 @@ struct PackagePickerSheet: View {
     @State private var pendingDestructive: Package?
     @State private var isDropping: Bool = false
     @State private var showingUploadPicker: Bool = false
+    @State private var showingLocalFilePicker: Bool = false
     @State private var munkiStore = MunkiRepoStore()
 
-    /// Show the source segmented control only when both repos are wired
-    /// up — otherwise the chooser is dead UI.
-    private var showSourcePicker: Bool {
-        settings.isMunkiRepoConfigured && !settings.packageCatalogURL.isEmpty
+    /// Local is always available (no config needed — operator picks
+    /// the file at run time), so the segmented control shows whenever
+    /// at least one of the configurable sources is wired. The user's
+    /// "Local" tab gives them a way to install ad-hoc files even when
+    /// no repo is configured.
+    private var availableSources: [Source] {
+        var s: [Source] = []
+        if settings.isMunkiRepoConfigured { s.append(.munki) }
+        if !settings.packageCatalogURL.isEmpty { s.append(.remote) }
+        s.append(.local)  // always
+        return s
     }
+
+    private var showSourcePicker: Bool { availableSources.count > 1 }
 
     private var sourcePicker: some View {
         HStack {
             Picker("Source", selection: $source) {
-                ForEach(Source.allCases) { Text($0.label).tag($0) }
+                ForEach(availableSources) { Text($0.label).tag($0) }
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-            .frame(maxWidth: 260)
+            .frame(maxWidth: 320)
             Spacer()
             if source == .munki {
                 if munkiStore.isLoading {
@@ -81,6 +93,54 @@ struct PackagePickerSheet: View {
             }
         }
         .padding(.horizontal, 16).padding(.vertical, 6)
+    }
+
+    /// Local-tab content: a big "Choose File…" button for picking a
+    /// .pkg / .dmg / .app from disk, plus the same drag-and-drop
+    /// instructions the rest of the window honors. Selection routes
+    /// through the existing `onDropFile` callback so install +
+    /// optional repo-upload run the same code path as a drag.
+    private var localTab: some View {
+        VStack(spacing: 12) {
+            Spacer()
+            Image(systemName: "shippingbox")
+                .font(.system(size: 56))
+                .foregroundStyle(.tint)
+            Text("Install a local package")
+                .font(.headline)
+            Text("Pick a .pkg, .dmg, or .app from your Mac and install it on \(targetSummary). You can also drag a file anywhere onto this window.")
+                .font(.callout).foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 40)
+            Button {
+                showingLocalFilePicker = true
+            } label: {
+                Label("Choose File…", systemImage: "doc.badge.arrow.up")
+                    .padding(.horizontal, 6)
+            }
+            .controlSize(.large)
+            .buttonStyle(.borderedProminent)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .fileImporter(
+            isPresented: $showingLocalFilePicker,
+            allowedContentTypes: [.init(filenameExtension: "pkg") ?? .data,
+                                  .init(filenameExtension: "dmg") ?? .data,
+                                  .init(filenameExtension: "app") ?? .data,
+                                  .application],
+            allowsMultipleSelection: false
+        ) { result in
+            switch result {
+            case .success(let urls):
+                guard let url = urls.first else { return }
+                onDropFile(url)
+                dismiss()
+            case .failure:
+                break
+            }
+        }
     }
 
     private var allPackages: [Package] {
@@ -192,19 +252,27 @@ struct PackagePickerSheet: View {
             HStack(spacing: 0) {
                 Group {
                     switch source {
-                    case .direct: list
+                    case .remote: list
                     case .munki:  munkiList
+                    case .local:  localTab
                     }
                 }
                 .frame(maxWidth: .infinity)
-                Divider()
-                Group {
-                    switch source {
-                    case .direct: preview
-                    case .munki:  munkiPreview
+                // Right-hand preview pane only applies to repo-backed
+                // sources. Local-file picking has no preview state to
+                // show — the file is selected and committed in one
+                // gesture, so the divider + pane stay hidden.
+                if source != .local {
+                    Divider()
+                    Group {
+                        switch source {
+                        case .remote: preview
+                        case .munki:  munkiPreview
+                        case .local:  EmptyView()
+                        }
                     }
+                    .frame(width: 260)
                 }
-                .frame(width: 260)
             }
             Divider()
             footer
@@ -216,10 +284,13 @@ struct PackagePickerSheet: View {
                 await munkiStore.refresh(settings: settings)
             }
             // Default to whichever source actually has content. Munki
-            // first now (per user request), but fall back to Direct when
-            // the Munki repo isn't configured.
-            if !settings.isMunkiRepoConfigured && !allPackages.isEmpty {
-                source = .direct
+            // first (per user request), then Remote when only it is
+            // configured, then Local as the catch-all.
+            if !availableSources.contains(source) {
+                source = availableSources.first ?? .local
+            }
+            if source == .munki && !settings.isMunkiRepoConfigured {
+                source = !allPackages.isEmpty ? .remote : .local
             }
         }
         .overlay {
@@ -279,7 +350,7 @@ struct PackagePickerSheet: View {
             // PUT into the catalog server). Munki repos are populated via
             // `makecatalogs` from outside the app, so hide the button when
             // the Munki tab is active to avoid implying it works there.
-            if source == .direct {
+            if source == .remote {
                 Button {
                     showingUploadPicker = true
                 } label: {
@@ -653,7 +724,7 @@ struct PackagePickerSheet: View {
     private var footer: some View {
         HStack {
             switch source {
-            case .direct:
+            case .remote:
                 if let sel = selected {
                     HStack(spacing: 4) {
                         Image(systemName: sel.resolvedIcon)
@@ -673,40 +744,55 @@ struct PackagePickerSheet: View {
                 } else {
                     Text("Pick a Munki package").font(.callout).foregroundStyle(.secondary)
                 }
+            case .local:
+                // Local has no selection state — file picking IS the
+                // install commit. Footer shows a hint instead of a
+                // selected-name preview.
+                Text("Use Choose File… above").font(.callout).foregroundStyle(.secondary)
             }
             Spacer()
             Button("Cancel") { dismiss() }
                 .keyboardShortcut(.cancelAction)
-            Button {
-                switch source {
-                case .direct: runSelected()
-                case .munki:  runSelectedMunki()
+            // Hide the prominent install button entirely on Local —
+            // there's nothing to install until the file picker
+            // returns, and once it does the sheet auto-commits +
+            // dismisses, so a button here would never fire.
+            if source != .local {
+                Button {
+                    switch source {
+                    case .remote: runSelected()
+                    case .munki:  runSelectedMunki()
+                    case .local:  break  // unreachable, guarded above
+                    }
+                } label: {
+                    Text(installButtonLabel)
                 }
-            } label: {
-                Text(installButtonLabel)
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+                .disabled(!canRunSelection || !hasInstallTarget)
             }
-            .buttonStyle(.borderedProminent)
-            .keyboardShortcut(.defaultAction)
-            .disabled(!canRunSelection || !hasInstallTarget)
         }
         .padding(.horizontal, 16).padding(.vertical, 12)
     }
 
     private var installButtonLabel: String {
         switch source {
-        case .direct:
+        case .remote:
             return selected?.isDestructive == true
                 ? "Run on \(targetSummary)"
                 : "Install on \(targetSummary)"
         case .munki:
             return "Install on \(targetSummary)"
+        case .local:
+            return ""  // button is hidden on Local; this is a fallback
         }
     }
 
     private var canRunSelection: Bool {
         switch source {
-        case .direct: return selected != nil
+        case .remote: return selected != nil
         case .munki:  return selectedMunki != nil
+        case .local:  return false  // file picker handles its own commit
         }
     }
 
