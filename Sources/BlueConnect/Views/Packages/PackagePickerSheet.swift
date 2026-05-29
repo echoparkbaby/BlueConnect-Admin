@@ -424,6 +424,14 @@ struct PackagePickerSheet: View {
                 TextField("Filter by name, group, or file", text: $query)
                     .textFieldStyle(.plain)
                     .focused($searchFocused)
+                    // The search field's first-responder status
+                    // captures Return, so the footer Install
+                    // button's `.defaultAction` shortcut never
+                    // fires when the user hits Enter while the
+                    // field has focus. Route Enter through
+                    // `runSelected()` which already guards on
+                    // having a selection + target.
+                    .onSubmit { runSelected() }
                 if !query.isEmpty {
                     Button {
                         query = ""
@@ -541,6 +549,12 @@ struct PackagePickerSheet: View {
                 TextField("Filter Munki packages", text: $query)
                     .textFieldStyle(.plain)
                     .focused($searchFocused)
+                    // Same as the Remote tab's search field: Enter
+                    // while the field has focus bypasses the
+                    // footer Install button's `.defaultAction`
+                    // shortcut, so route it through the Munki
+                    // commit path here.
+                    .onSubmit { runSelectedMunki() }
                 if !query.isEmpty {
                     Button { query = "" } label: {
                         Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
