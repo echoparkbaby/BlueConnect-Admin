@@ -6,6 +6,7 @@ A native macOS admin client for [BlueSkyConnect](https://github.com/BlueSkyTools
 
 > [!IMPORTANT]
 > **Upgrading from v1.2.x? Re-deploy the server-side PHP after updating the Mac app.**
+> 
 > v1.5.0 is the next public release after v1.2.0 — internal builds tagged 1.3 and 1.4 were rolled into this one. The Mac app introduces a new `bs_blocklist.json.php` endpoint, a new `block` / `unblock` action in `bs_host_action.json.php` (with an auto-installed `BlueSky.blocked_serials` table + BEFORE INSERT trigger that refuses re-registration of sold/transferred Macs), and an updated `blueconnect_api.php` covering seven additional MunkiReport modules — local users, network, Wi-Fi, software updates, profiles, time machine, pending installs. The Mac app upgrade alone doesn't pick up those server-side changes; you have to push the new PHP files:
 >
 > ```sh
@@ -19,47 +20,60 @@ A native macOS admin client for [BlueSkyConnect](https://github.com/BlueSkyTools
 >     <user>@<mr-host>:~/<munkireport-stack>/public/
 > ```
 >
-> Recommended on the BSC LXC for the Block Host Permanently feature: `bash ~/docker/stacks/bluesky/scripts/install-blocklist-cron.sh` installs a per-minute sweeper that scrubs any rogue row + key the BEFORE INSERT trigger didn't catch.
+> Recommended on the your BlueConnect Server  for the Block Host Permanently feature: `bash /bluesky/scripts/install-blocklist-cron.sh` installs a per-minute sweeper that scrubs any rogue row + key the BEFORE INSERT trigger didn't catch.
 >
 > See [RELEASE_NOTES.md](RELEASE_NOTES.md) for the full v1.5.0 list — UniFi multi-profile, Install Package picker rework, MunkiReport Run Runner with live log, Munki favorites, plus everything that landed in the rolled-up 1.3 / 1.4 work.
 
 ## Highlights
 
+### Per-host row buttons
+
+![Connect column row buttons — SSH, VNC, SCP, Install, Chat, Quick Actions](Resources/screenshots/connect-buttons.png)
+
+Every host row in the table carries a strip of one-click action buttons in the Connect column. Six glyphs grouped into three sets by purpose, separated by thin dividers:
+
+- **SSH** (terminal) — opens a shell to the host in the bottom-pane terminal.
+- **VNC** (display) — opens Screen Share over the SSH tunnel.
+- **SCP** (orange file) — pick a file from disk, lands it on the host's Desktop.
+- **Install** (purple box) — opens the Install Package window for this host (Munki / Remote / Local).
+- **Chat** (speech bubbles) — starts a chat with whoever's at the screen (needs the GUI Helper deployed on that Mac).
+- **Quick Actions** (bolt) — opens the Quick Actions menu for this host.
+
+The dividers separate **remote access** (SSH/VNC) from **push to host** (SCP/Install) from **talk to user** (Chat/QA). Hide buttons or pick alternate SF Symbol glyphs via **View → Customize Row Icons…**.
+
 ### Quick Actions Browser — one window, every canned admin command
 
-![Browse Quick Actions window with the Set Computer Name action selected](Resources/screenshots/quick-actions-browser.png)
+![[set-computer-name.png]]
 
-A standalone resizable window (⌘⇧K, or **Quick Actions → Browse All Quick Actions…**) that surfaces every Quick Action in one categorized list. Pick a target host at the top, click any action on the left to see its description, parameters, and the exact shell command that will run on the right. Star the ones you use most — they pin to a **Favorites** group at the top of both the browser and the menubar Quick Actions menu, persisted across launches.
+A standalone resizable window (⌘K, or **Quick Actions → Browse All Quick Actions…**) that surfaces every Quick Action in one categorized list. Pick a target host at the top, click any action on the left to see its description, parameters, and the exact shell command that will run on the right. **Favorite** the ones you use most. 
 
-Categories cover the whole catalog now — Munki / MunkiReport / Packages / Diagnostics / Time Machine / FileVault / Security & MDM / Disk & Spotlight / Privacy & TCC / Networking / Logs / Process & App / Email / BlueConnect Fleet / UI Tweaks / etc. Roughly 60 actions out of the box, all alphabetized. Need a per-host commit? Right-click any host → **Quick Actions** still gives you the inline sheet.
-
-Several actions get smarter when MunkiReport is configured: **Logout User…** pulls the live `local_users` list for the target Mac into a picker (with admin badges) instead of asking you to remember shortnames; **Set Computer Name…** shows a live "Will set:" preview of all three macOS hostname slots as you type, with a "unchanged" pill on the ones your scope picker excludes.
+About 60 actions are available, all alphabetized. Right-click any host to access the inline sheet for per-host commits.
 
 ### Munki repo browser & installer · MunkiReport inventory in the side pane
 
 ![Munki repo browser with the host Inventory tab on the right](Resources/screenshots/munki-repo-browser.png)
 
-Point the app at any S3-compatible Munki repo (Wasabi, AWS S3, Cloudflare R2, Backblaze B2, DigitalOcean Spaces) or a plain-HTTPS / HTTP-Basic-Auth-fronted server. Browse and search the catalog, right-click any package to drill into older versions, then deploy to one host or many via a multi-select picker.
+Point the app at any S3-compatible Munki repo (Wasabi, AWS S3, Cloudflare R2, Backblaze B2, DigitalOcean Spaces) or a plain-HTTPS / HTTP-Basic-Auth-fronted server. Browse and search the catalog, right-click any package to drill into older versions, then deploy to one host or many via a multi-select picker. **Favorites** added in 1.5.0 release.
 
-The right-side pane has an **Inventory** tab that pulls MunkiReport data inline — machine, MunkiReport check-in, local users (with admin + SSH-access badges), network interfaces, Wi-Fi (SSID, channel, signal), Munki run status, pending Apple updates, FileVault, storage, battery, Time Machine, configuration profiles, pending Munki installs, and managed installs. Each section is reorderable + hideable in Settings → MunkiReport. Backed by a tiny standalone `blueconnect_api.php` file that drops into MR's `public/` directory; no upstream module changes. A small arrow button in the section header opens that host's full MunkiReport page in your default browser.
+The right-side pane has an **Inventory** tab that pulls MunkiReport data inline — machine, MunkiReport check-in. Backed by a tiny standalone `blueconnect_api.php` file that drops into MR's `public/` directory; no upstream module changes. A small arrow button in the section header opens that host's full MunkiReport page in your default browser. The **PLAY** icon runs munkireport runner.
 
 ### Erase / Reinstall macOS, one structured sheet
 
 <img src="Resources/screenshots/erase-reinstall.png" alt="Erase / Reinstall macOS sheet" width="420" />
 
-Drives [Graham Pugh's `erase-install.sh`](https://github.com/grahampugh/erase-install) from a single dialog. Every flag the wiki documents is reachable, with defaults that match a typical fleet (`--check-power`, `--power-wait-limit 180`, `--min-drive-space=50`, `--cleanup-after-use`). Recent runs are saved — star one to pin it past the 10-entry rolling cap. Hostname-confirm gate before `--erase` so you can't fat-finger a factory wipe.
+Drives [Graham Pugh's `erase-install.sh`](https://github.com/grahampugh/erase-install) from a single dialog. Every flag the wiki documents is reachable, with defaults that match a typical fleet. Recent runs are saved — star one to pin it past the 10-entry rolling cap. 
 
 ### Quick Actions — recipes for the things you type over and over
 
 <img src="Resources/screenshots/quick-admin-actions.png" alt="Quick Actions top-level menu" width="280" />
 
-The original feature that the Browser (above) expands on. Top-level **Quick Actions** menu — or right-click any host → **Quick Actions** for the same list in context. Each category is a nested submenu so the top level scans cleanly; favorited actions appear flat at the top. Each action shows the exact shell command before you run it, and Settings → Quick Actions lets you hide built-ins or add your own custom shell-command actions.
+Top-level **Quick Actions** menu — or right-click any host → **Quick Actions** for the same list in context. Each category is a nested submenu so the top level scans cleanly; favorited actions appear flat at the top. Each action shows the exact shell command before you run it, and Settings → Quick Actions lets you hide built-ins or add your own custom shell-command actions.
 
 ### Block Host Permanently
 
 For Macs that have been sold, transferred, or are otherwise out of your admin reach but whose BlueSky agent keeps phoning home: right-click → **Danger Zone → Block Host Permanently…**. Behind the scenes:
 
-- Adds the host's serial to a new `BlueSky.blocked_serials` table (auto-created on first block).
+- Adds  host's serial to a new `BlueSky.blocked_serials` table (auto-created on first block).
 - Installs a `BEFORE INSERT` trigger on `computers` that rejects any future registration with that serial at the DB layer.
 - Runs the same teardown as Delete (scrub `authorized_keys`, drop the row).
 - A per-minute cron sweeper (`examples/bluesky/scripts/purge-blocked.sh`) catches any survivor that slips past the trigger.
@@ -80,14 +94,14 @@ Grab the latest signed and notarized `.dmg` from the [Releases page](../../relea
 
 ## Server setup
 
-The app has four integrations. Only **one is required** — the BlueSkyConnect endpoints. The other three (Direct Package Repo, Munki Repo, MunkiReport) are opt-in. Mix and match whatever you have.
+The app has four integrations. Only **one is required** — the BlueSkyConnect endpoints. The other three (Munki Repo, Remote Repo, MunkiReport) are opt-in. Mix and match whatever you have.
 
-| Integration | Required? | What you have to deploy server-side |
-|---|---|---|
-| **BlueSkyConnect endpoints** | **yes** — the app reads its host list from here | A small set of PHP files (`server/bs_*.php`) on your BSC server |
-| **Direct Package Repo** | optional | One PHP file (`server/catalog.php`) in your `pkgs/` directory **OR** a static `catalog.json` |
-| **Munki Repo (Wasabi/S3)** | optional | **Nothing.** Uses your existing S3-compatible bucket. Just enter credentials in Settings. |
-| **MunkiReport API** | optional | One PHP file (`server/munkireport-module/blueconnect_api.php`) in your MR webroot + a token env var |
+| Integration                  | Required?                                       | What you have to deploy server-side                                                                 |
+| ---------------------------- | ----------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| **BlueSkyConnect endpoints** | **yes** — the app reads its host list from here | A small set of PHP files (`server/bs_*.php`) on your BSC server                                     |
+| **Rempte Repo**              | optional                                        | One PHP file (`server/catalog.php`) in your `pkgs/` directory **OR** a static `catalog.json`        |
+| **Munki Repo (Wasabi/S3)**   | optional                                        | **Nothing.** Uses your existing S3-compatible bucket. Just enter credentials in Settings.           |
+| **MunkiReport API**          | optional                                        | One PHP file (`server/munkireport-module/blueconnect_api.php`) in your MR webroot + a token env var |
 
 Quick recap of every file shipped under `server/`:
 
@@ -122,7 +136,7 @@ examples/bluesky/scripts/
 
 ### 1. BlueSkyConnect endpoints (required)
 
-Stock BlueSkyConnect ships an HTML admin UI but no JSON API. This Mac app needs a handful of small read-mostly PHP endpoints (in `server/`) deployed once to your BSC server's web root. They don't change BSC's behavior — they translate the existing database state into JSON.
+This Mac app needs a handful of small read-mostly PHP endpoints (in `server/`) deployed once to your BSC server's web root. They don't change BSC's behavior — they translate the existing database state into JSON.
 
 > **Setting up BSC from scratch?** A working `docker-compose.yml` + `.env.example` + step-by-step README is in [`examples/bluesky/`](examples/bluesky/). Copy that template if you don't already have a BSC stack running.
 
@@ -162,9 +176,9 @@ The endpoints share `bs_auth.php` for HTTP Basic verification, with two modes se
 
 See [`examples/bluesky/README.md`](examples/bluesky/README.md) for the full walkthrough.
 
-### 2. Direct Package Repo (optional)
+### 2. Remote Repo (optional)
 
-The simplest "Install Package" flow. You host `.pkg` / `.dmg` / `.app` installers somewhere with a JSON catalog listing them, and the app installs from those URLs over HTTPS. Good for hand-curated software where you control every file.
+The simplest "Install Package" flow. You host `.pkg` / `.dmg` / `.app` installers somewhere with a JSON catalog listing them, and the app installs from those URLs over HTTPS. 
 
 **Picking an upload service** (Settings → Package Repo → Upload service):
 
@@ -262,18 +276,6 @@ curl -H "Authorization: Bearer $TOKEN" \
 | **API path** | `blueconnect_api.php` (default) or `custom/blueconnect_api.php` (when MR's bind mount surfaces the file under `/custom/`) |
 
 Then click **Test Connection**. Green = URL, token, and DB connection all working. From here, click any host that has a serial number → **Inventory** tab on the right pane populates automatically. Tab choice persists across launches.
-
-#### What MunkiReport surfaces in the Inventory tab
-
-Only sections your MR server actually has — missing modules are skipped silently:
-
-- **Machine** — model, CPU, RAM, OS version, hostname
-- **Check-in** — last check-in time (with relative ago), console user, remote IP, uptime
-- **Munki** — last run type/time, error & warning counts (colored), manifest name
-- **FileVault** — encryption status, recovery key escrow status, enabled users
-- **Storage** — drive model, total/free, SMART status
-- **Battery** — condition, cycle count, max capacity %, charge %, AC state
-- **Managed Installs** — first 20 packages with checkmark for installed / dashed circle for pending, plus installed version
 
 #### MunkiReport troubleshooting
 
