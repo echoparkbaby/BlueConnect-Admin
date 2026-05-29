@@ -24,6 +24,30 @@ A native macOS admin client for [BlueSkyConnect](https://github.com/BlueSkyTools
 >
 > See [RELEASE_NOTES.md](RELEASE_NOTES.md) for the full v1.5.0 list — UniFi multi-profile, Install Package picker rework, MunkiReport Run Runner with live log, Munki favorites, plus everything that landed in the rolled-up 1.3 / 1.4 work.
 
+## Contents
+
+- [Highlights](#highlights)
+  - [Per-host row buttons](#per-host-row-buttons)
+  - [Quick Actions Browser](#quick-actions-browser--one-window-every-canned-admin-command)
+  - [Munki repo browser & MunkiReport inventory](#munki-repo-browser--installer--munkireport-inventory-in-the-side-pane)
+  - [Erase / Reinstall macOS](#erase--reinstall-macos-one-structured-sheet)
+  - [Quick Actions](#quick-actions--recipes-for-the-things-you-type-over-and-over)
+  - [Block Host Permanently](#block-host-permanently)
+- [Download](#download)
+- [Requirements](#requirements)
+- [Server setup](#server-setup)
+  - [1. BlueSkyConnect endpoints (required)](#1-blueskyconnect-endpoints-required)
+  - [2. Remote Repo (optional)](#2-remote-repo-optional)
+  - [3. Munki Repo (optional)](#3-munki-repo-optional)
+  - [4. MunkiReport API (optional)](#4-munkireport-api-optional)
+- [First launch](#first-launch)
+- [Features](#features)
+  - [Keyboard shortcuts](#keyboard-shortcuts)
+- [Building from source](#building-from-source)
+- [Troubleshooting](#troubleshooting)
+- [Support the project](#support-the-project)
+- [License](#license)
+
 ## Highlights
 
 ### Per-host row buttons
