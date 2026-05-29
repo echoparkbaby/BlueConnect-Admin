@@ -140,7 +140,7 @@ final class ChatService: ObservableObject, Identifiable {
             case "MISSING_HELPER":
                 msg = "GUI Helper not installed on \(host.displayName). Right-click the host → Quick Actions → Miscellaneous → \"Setup: Install GUI Helper\" and try again."
             case "HELPER_NOT_RUNNING":
-                msg = "GUI Helper is installed on \(host.displayName) but isn't running in the console user's session. This usually happens when the helper was installed AFTER the user logged in — LaunchAgents only bootstrap at next login. Either have the user log out and back in, or re-run \"Setup: Install GUI Helper\" (it forcibly bootstraps the agent into the current session)."
+                msg = "GUI Helper on \(host.displayName) isn't running. Re-run \"Setup: Install GUI Helper\" or have the user log out and back in."
             case "MISSING_CHAT_DIR":
                 msg = "The chat directory hasn't been set up on \(host.displayName) (likely installed before the chat feature shipped). Re-run \"Setup: Install GUI Helper\" on this Mac — it's idempotent and will add the missing /chat folder."
             case "MISSING_CHAT_BINARY":
