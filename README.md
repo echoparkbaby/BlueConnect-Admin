@@ -354,6 +354,7 @@ That's it — the host list populates from the server.
 | ⌘2 | Open VNC session to selected host |
 | ⌘3 | Send File via SCP to selected host |
 | ⌘4 | Install Package on selected host (opens the Install Package window) |
+| ⌘5 | Open Chat with whoever's at the screen on selected host |
 | ⌘⇧U | Upload Package to Repo… (no install) |
 | ⌘⇧E | Erase / Reinstall macOS… for selected host |
 | ⌘⇧M | Browse Munki Repo |
@@ -503,7 +504,7 @@ The same screen has a User field if you need a different remote user for one pee
 
 ## Support the project
 
-If BlueConnect Admin saves you time, a tip is always appreciated.
+If BlueConnect Admin saves you time, a tip is always appreciated. I got kids!
 
 [<img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" height="48" />](https://buymeacoffee.com/echoparkbaby)
 
