@@ -5,8 +5,8 @@ A native macOS admin client for [BlueSkyConnect](https://github.com/BlueSkyTools
 ![BlueConnect Admin screenshot](Resources/screenshot.png)
 
 > [!IMPORTANT]
-> **Upgrading from v1.2.x? Re-deploy the server-side PHP after updating the Mac app.** (Upgrading from v1.3.x is Mac-app-only — no server changes for v1.4.0.)
-> [v1.3.0](https://github.com/echoparkbaby/BlueConnect-Admin/releases/tag/v1.3.0) introduced a new `bs_blocklist.json.php` endpoint, a new `block` / `unblock` action in `bs_host_action.json.php` (with an auto-installed `BlueSky.blocked_serials` table + BEFORE INSERT trigger that refuses re-registration of sold/transferred Macs), and an updated `blueconnect_api.php` covering seven additional MunkiReport modules — local users, network, Wi-Fi, software updates, profiles, time machine, pending installs. The Mac app upgrade alone doesn't pick up those server-side changes; you have to push the new PHP files:
+> **Upgrading from v1.2.x? Re-deploy the server-side PHP after updating the Mac app.**
+> v1.5.0 is the next public release after v1.2.0 — internal builds tagged 1.3 and 1.4 were rolled into this one. The Mac app introduces a new `bs_blocklist.json.php` endpoint, a new `block` / `unblock` action in `bs_host_action.json.php` (with an auto-installed `BlueSky.blocked_serials` table + BEFORE INSERT trigger that refuses re-registration of sold/transferred Macs), and an updated `blueconnect_api.php` covering seven additional MunkiReport modules — local users, network, Wi-Fi, software updates, profiles, time machine, pending installs. The Mac app upgrade alone doesn't pick up those server-side changes; you have to push the new PHP files:
 >
 > ```sh
 > ./deploy-server.sh <ssh-user>@<bsc-host>
@@ -19,9 +19,9 @@ A native macOS admin client for [BlueSkyConnect](https://github.com/BlueSkyTools
 >     <user>@<mr-host>:~/<munkireport-stack>/public/
 > ```
 >
-> Recommended on the BSC LXC for the new Block Host Permanently feature: `bash ~/docker/stacks/bluesky/scripts/install-blocklist-cron.sh` installs a per-minute sweeper that scrubs any rogue row + key the BEFORE INSERT trigger didn't catch.
+> Recommended on the BSC LXC for the Block Host Permanently feature: `bash ~/docker/stacks/bluesky/scripts/install-blocklist-cron.sh` installs a per-minute sweeper that scrubs any rogue row + key the BEFORE INSERT trigger didn't catch.
 >
-> See the [v1.3.0 release notes](https://github.com/echoparkbaby/BlueConnect-Admin/releases/tag/v1.3.0) for the full list — new Browse Quick Actions window, Block Host Permanently / Unblock UI, expanded MR inventory sections, Logout User MR-backed picker, Set Computer Name live preview, ⌘0 to reopen the main window, action consolidations.
+> See [RELEASE_NOTES.md](RELEASE_NOTES.md) for the full v1.5.0 list — UniFi multi-profile, Install Package picker rework, MunkiReport Run Runner with live log, Munki favorites, plus everything that landed in the rolled-up 1.3 / 1.4 work.
 
 ## Highlights
 
