@@ -14,6 +14,7 @@ struct MunkiReportInventoryView: View {
     @State private var inventory: MRHostInventory?
     @State private var errorMessage: String?
     @State private var isLoading: Bool = false
+    @State private var showingRunnerSheet: Bool = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -25,6 +26,10 @@ struct MunkiReportInventoryView: View {
         }
         .frame(width: 620, height: 540)
         .task { await load() }
+        .sheet(isPresented: $showingRunnerSheet) {
+            MunkiReportRunnerSheet(host: host)
+                .environmentObject(settings)
+        }
     }
 
     private var header: some View {
@@ -47,6 +52,17 @@ struct MunkiReportInventoryView: View {
                 }
                 .help("Open this host's dashboard in MunkiReport (browser)")
             }
+            // "Run Runner" — opens MunkiReportRunnerSheet to SSH into
+            // the host and invoke munkireport-runner. Disabled when
+            // we can't reach the host (no serial == not deployed) or
+            // it's currently being SSH'd by another sheet instance.
+            Button {
+                showingRunnerSheet = true
+            } label: {
+                Label("Run Runner", systemImage: "play.rectangle")
+            }
+            .help("SSH to this host and run /usr/local/munkireport/munkireport-runner so a fresh check-in happens now")
+            .disabled(host.serialnum?.isEmpty ?? true)
             Button {
                 Task { await load() }
             } label: {
