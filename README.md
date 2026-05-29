@@ -342,11 +342,13 @@ That's it — the host list populates from the server.
 | Shortcut | Action |
 |---|---|
 | ⌘T | New local terminal (zsh) |
+| ⌘⇧I | Open the Terminal Profile picker |
 | ⌘⇧[ / ⌘⇧] | Previous / next bottom-pane tab |
 | ⌃⌘1 | Jump to Log tab |
 | ⌃⌘2 … ⌃⌘9 | Jump to terminal tab N |
-| ⌘⇧D | Detach active tab to its own window |
-| ⌘⌃⇧K | Kill all active SSH tunnels |
+| ⌘F | Detach active tab to its own window |
+| ⌘⇧F | Detach active tab and take it full screen |
+| ⌃⌘⇧K | Kill all active SSH tunnels |
 | ⌘W | Close active terminal tab (main window) · close detached terminal window |
 | ⌘⇧W | (In a detached terminal window) reattach to the main window's tab bar |
 
@@ -363,8 +365,8 @@ That's it — the host list populates from the server.
 | ⌘⇧5 | Sidebar filter: Inactive |
 | ⌘⇧6 | Sidebar filter: Uncategorized |
 | ⌘\\ | Show Log pane |
-| ⌘F | Focus the host search field |
-| ⌘⇧F | Focus the menubar quick-search dropdown |
+| ⌥⌘F | Focus the host search field |
+| ⌃⌘F | Focus the menubar quick-search dropdown |
 
 **App**
 
@@ -374,10 +376,9 @@ That's it — the host list populates from the server.
 | ⌘I | About BlueConnect Admin |
 | ⌘R | Refresh host list |
 | ⌘E | Export host list as CSV |
-| ⌘A | Open Activity Log |
 | ⌘D | Toggle favorite on selected host |
 | ⌘S | Save host notes (when the right-pane notes field is dirty) |
-| ⌘⇧K | Open the Browse Quick Actions window |
+| ⌘K | Open the Browse Quick Actions window |
 | ⌘0 | Show / reopen the main BlueConnect Admin window |
 | ⌘⇧L | Lock now (Touch ID re-required if enabled) |
 | Esc | Close Settings window · clear the host search field |
