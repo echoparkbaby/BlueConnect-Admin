@@ -64,17 +64,11 @@ struct LocalNetworkRow: View {
             if service.hasVNC {
                 Button("VNC (Screen Share)") { connectVNC() }
             }
-            if service.hasSSH {
-                Button("Send File via SCP…") {
-                    Task { @MainActor in showingScpPicker = true }
-                }
-            }
+            // SCP intentionally omitted from the context menu — file
+            // uploads are driven by drag-and-drop onto the row.
 
             if service.hasSSH {
                 Divider()
-                Menu("Open in Terminal") {
-                    Button("SSH (Terminal.app)") { openInTerminalSSH() }
-                }
                 Button("Run Shell Command…") {
                     Task { @MainActor in
                         pendingCommand = ""

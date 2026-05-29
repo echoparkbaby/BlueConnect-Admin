@@ -985,15 +985,75 @@ struct ContentView: View {
                 return filteredAndSorted.filter { setForMenu.contains($0.id) }
             }()
             if menuTargets.count == 1, let h = menuTargets.first {
-                Button("Rename…") { renameTarget = h }
-                Menu("Open in Terminal") {
-                    Button("SSH (Remote Shell)") { openInTerminal(host: h, kind: .ssh) }
-                        .disabled(!h.active)
-                    Button("VNC (Screen Share)")  { openInTerminal(host: h, kind: .vnc) }
-                        .disabled(!h.active)
-                    Button("SCP (File Upload)…")  { openInTerminal(host: h, kind: .scp) }
-                        .disabled(!h.active)
+                // Order requested by user: Quick Actions → divider →
+                // SSH/VNC/SCP (open in Terminal.app) → divider → Open
+                // Chat → divider → Set Category → rest (Install,
+                // Software Inventory, Rename, Danger Zone).
+                Menu("Quick Actions") {
+                    let enabled = quickActionStore.allEnabled
+                    let recents = enabled.recents
+                    if !recents.isEmpty {
+                        Section("Recent") {
+                            ForEach(recents) { action in
+                                Button(action.label) {
+                                    quickActionTarget = QuickActionTarget(host: h, action: action)
+                                }
+                            }
+                        }
+                        Divider()
+                    }
+                    let favorites = enabled.favorites
+                    if !favorites.isEmpty {
+                        Section("Favorites") {
+                            ForEach(favorites) { action in
+                                Button(action.label) {
+                                    quickActionTarget = QuickActionTarget(host: h, action: action)
+                                }
+                            }
+                        }
+                        Divider()
+                    }
+                    ForEach(Array(enabled.grouped.enumerated()),
+                            id: \.offset) { entry in
+                        Menu(entry.element.0) {
+                            ForEach(entry.element.1) { action in
+                                Button(action.label) {
+                                    quickActionTarget = QuickActionTarget(host: h, action: action)
+                                }
+                            }
+                        }
+                    }
                 }
+                .disabled(!h.active)
+                Divider()
+                // Connection commands — flat top-level instead of an
+                // "Open in Terminal" submenu. They route through
+                // `openInTerminal(host:kind:)` which dispatches to
+                // macOS Terminal.app, not the in-app bottom-pane
+                // terminal drawer (the row icons already cover that).
+                // SCP intentionally omitted from the context menu —
+                // file uploads are driven by the row icon + drag-and-
+                // drop on the host row.
+                Button("SSH (Remote Shell)") { openInTerminal(host: h, kind: .ssh) }
+                    .disabled(!h.active)
+                Button("VNC (Screen Share)")  { openInTerminal(host: h, kind: .vnc) }
+                    .disabled(!h.active)
+                Divider()
+                // Chat — opens a persistent bidirectional chat window
+                // with whoever's at the screen on this host. Requires
+                // the GUI Helper to be installed (the chat client is
+                // installed alongside it).
+                Menu("Open Chat") {
+                    Button("With whoever's at the screen") {
+                        chatController.present(ChatService(host: h, settings: settings, targetUser: ""))
+                        openWindow(id: "blueconnect-chat")
+                    }
+                    Button("With specific user…") {
+                        chatTargetSheet = h
+                    }
+                }
+                .disabled(!h.active)
+                Divider()
                 Menu("Set Category") {
                     if !categories.categories.isEmpty {
                         ForEach(categories.categories, id: \.self) { cat in
@@ -1008,6 +1068,7 @@ struct ContentView: View {
                         showingCategorySheet = true
                     }
                 }
+                Button("Rename…") { renameTarget = h }
                 Divider()
                 Menu("Install") {
                     // Defer state mutations one runloop tick — context-menu
@@ -1098,62 +1159,9 @@ struct ContentView: View {
                     }
                     .disabled((h.serialnum ?? "").isEmpty)
                 }
-                Divider()
-                // Chat — opens a persistent bidirectional chat window
-                // with whoever's at the screen on this host. Requires
-                // the GUI Helper to be installed (the chat client is
-                // installed alongside it).
-                Menu("Open Chat") {
-                    Button("With whoever's at the screen") {
-                        chatController.present(ChatService(host: h, settings: settings, targetUser: ""))
-                        openWindow(id: "blueconnect-chat")
-                    }
-                    Button("With specific user…") {
-                        chatTargetSheet = h
-                    }
-                }
-                .disabled(!h.active)
-                Divider()
-                // Quick Actions sits at the very bottom of the menu so
-                // the common destructive operations don't bury it. Reads
-                // from QuickActionStore so disabled actions are hidden
-                // and custom user actions appear under their categories.
-                Menu("Quick Actions") {
-                    let enabled = quickActionStore.allEnabled
-                    let recents = enabled.recents
-                    if !recents.isEmpty {
-                        Section("Recent") {
-                            ForEach(recents) { action in
-                                Button(action.label) {
-                                    quickActionTarget = QuickActionTarget(host: h, action: action)
-                                }
-                            }
-                        }
-                        Divider()
-                    }
-                    let favorites = enabled.favorites
-                    if !favorites.isEmpty {
-                        Section("Favorites") {
-                            ForEach(favorites) { action in
-                                Button(action.label) {
-                                    quickActionTarget = QuickActionTarget(host: h, action: action)
-                                }
-                            }
-                        }
-                        Divider()
-                    }
-                    ForEach(Array(enabled.grouped.enumerated()),
-                            id: \.offset) { entry in
-                        Menu(entry.element.0) {
-                            ForEach(entry.element.1) { action in
-                                Button(action.label) {
-                                    quickActionTarget = QuickActionTarget(host: h, action: action)
-                                }
-                            }
-                        }
-                    }
-                }
-                .disabled(!h.active)
+                // (Quick Actions + Open Chat moved to the top of the
+                // menu per user spec — see the block above the
+                // Connections section.)
             } else if menuTargets.count > 1 {
                 Menu("Set Category for \(menuTargets.count) Hosts") {
                     if !categories.categories.isEmpty {
