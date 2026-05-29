@@ -39,6 +39,10 @@ struct ConnectPanel: View {
     /// click-to-copy on the inventory header. Flashes back to nil
     /// after ~1.2s so the "Copied" affordance is short-lived.
     @State private var justCopiedSerial: String?
+    /// Drives the per-host MunkiReport runner sheet — set to a host
+    /// when the operator clicks "Run Runner" in the inventory header.
+    /// Sheet dismiss clears it.
+    @State private var runnerSheetHost: BlueSkyHost?
 
     var body: some View {
         ScrollView {
@@ -169,6 +173,17 @@ struct ConnectPanel: View {
                 .buttonStyle(.borderless)
                 .help("Open this host's dashboard in MunkiReport (browser)")
             }
+            // Run Runner — SSH to the host and invoke
+            // /usr/local/munkireport/munkireport-runner so a fresh
+            // check-in fires now instead of waiting for the daemon's
+            // next tick. Password collected in the sheet (not cached).
+            Button {
+                runnerSheetHost = host
+            } label: {
+                Image(systemName: "play.rectangle")
+            }
+            .buttonStyle(.borderless)
+            .help("Run MunkiReport runner on this host (asks for password)")
             Button {
                 mrInventory.refresh(serial: serial, settings: settings)
             } label: {
@@ -177,6 +192,10 @@ struct ConnectPanel: View {
             .buttonStyle(.borderless)
             .help("Re-fetch MR inventory")
             .disabled(mrInventory.loadingSerial == serial)
+        }
+        .sheet(item: $runnerSheetHost) { h in
+            MunkiReportRunnerSheet(host: h)
+                .environmentObject(settings)
         }
     }
 
