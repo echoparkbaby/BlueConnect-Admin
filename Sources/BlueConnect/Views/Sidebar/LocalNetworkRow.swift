@@ -8,9 +8,7 @@ struct LocalNetworkRow: View {
     @Environment(TailscaleBrowser.self) private var tailscale
     @Environment(TerminalSessionsManager.self) private var terminals
     @Environment(InstallController.self) private var installer
-    @Environment(PackageCatalogStore.self) private var packageCatalog
     @Environment(PackagePickerController.self) private var packagePicker
-    @Environment(MunkiRepoStore.self) private var munkiStore
     @EnvironmentObject private var quickActionStore: QuickActionStore
     @Environment(\.openWindow) private var openWindow
     @State private var hovered = false
@@ -172,30 +170,6 @@ struct LocalNetworkRow: View {
                 runRemoteCommand(command, label: action.tabLabel)
             }
         }
-        // Observe pending repo-picker installs that targeted THIS row.
-        // The picker only deals in BlueSkyHost-keyed targets via its
-        // `.hosts` array; we tag local-network targets via the parallel
-        // `.localTarget` field below and react to direct/munki/file
-        // events when that field matches us.
-        .onChange(of: packagePicker.pendingDirectInstall) { _, pkg in
-            guard let pkg, packagePicker.localTarget?.id == service.id,
-                  let cmd = packageCatalog.catalog?.remoteCommand(for: pkg) else { return }
-            runRemoteCommand(cmd, label: "install: \(pkg.name)")
-            packagePicker.pendingDirectInstall = nil
-            packagePicker.localTarget = nil
-        }
-        .onChange(of: packagePicker.pendingFileDrop) { _, url in
-            guard let url, packagePicker.localTarget?.id == service.id else { return }
-            installLocalFile(url)
-            packagePicker.pendingFileDrop = nil
-            packagePicker.localTarget = nil
-        }
-        .onChange(of: packagePicker.pendingMunkiInstall) { _, pkg in
-            guard let pkg, packagePicker.localTarget?.id == service.id else { return }
-            installMunkiPackage(pkg)
-            packagePicker.pendingMunkiInstall = nil
-            packagePicker.localTarget = nil
-        }
     }
 
     /// Inline sheet for the Run Shell Command… action. Kept here rather
@@ -342,9 +316,8 @@ struct LocalNetworkRow: View {
 
     private func openRepoPicker() {
         guard service.hasSSH else { return }
-        // Empty BSC hosts list + localTarget set tells the picker (and
-        // ContentView/LocalNetworkRow's onChange observers) to route the
-        // pick through the direct-install path on this row.
+        // Empty BSC hosts list + localTarget set tells ContentView to route
+        // the pick through the direct-install path for this row.
         packagePicker.present(hosts: [])
         packagePicker.localTarget = service
         openWindow(id: "package-picker")
@@ -359,30 +332,4 @@ struct LocalNetworkRow: View {
         NSPasteboard.general.setString(cmd, forType: .string)
     }
 
-    /// Munki install via the direct (LAN) transport. Mirrors
-    /// ContentView.installMunkiPackage but uses `prepareMunkiPendingDirect`
-    /// so SSH/scp reaches the host directly with no BSC ProxyCommand.
-    private func installMunkiPackage(_ pkg: MunkiPkg) {
-        guard let port = service.sshPort else { return }
-        guard let loc = pkg.installerItemLocation, !loc.isEmpty else { return }
-        let ext = (loc as NSString).pathExtension.isEmpty
-            ? "pkg" : (loc as NSString).pathExtension
-        let fileName = (loc as NSString).lastPathComponent
-        let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("bcadmin-munki-\(UUID().uuidString).\(ext)")
-        let store = munkiStore
-        let settingsRef = settings
-        let target = InstallController.DirectTarget(
-            hostname: service.hostname,
-            port: port,
-            remoteUser: resolvedRemoteUser,
-            displayName: service.name
-        )
-        installer.prepareMunkiPendingDirect(target: target,
-                                            expectedFileName: fileName) {
-            try await store.fetch(key: "pkgs/\(loc)", to: tmp, settings: settingsRef)
-            return tmp
-        }
-        openWindow(id: "install-progress")
-    }
 }

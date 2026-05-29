@@ -145,7 +145,6 @@ struct PackagePickerSheet: View {
             case .success(let urls):
                 guard let url = urls.first else { return }
                 onDropFile(url)
-                dismiss()
             case .failure:
                 break
             }
@@ -355,7 +354,6 @@ struct PackagePickerSheet: View {
             let ext = url.pathExtension.lowercased()
             guard ext == "pkg" || ext == "dmg" || ext == "app" else { return false }
             onDropFile(url)
-            dismiss()
             return true
         } isTargeted: { hovering in
             isDropping = hovering
@@ -412,7 +410,6 @@ struct PackagePickerSheet: View {
                       ]) { result in
             if case .success(let url) = result {
                 onDropFile(url)
-                dismiss()
             }
         }
     }
@@ -633,7 +630,6 @@ struct PackagePickerSheet: View {
         let versions = allVersions(of: pkg.name)
         Button("Install latest (\(pkg.version))") {
             onInstallMunki(pkg)
-            dismiss()
         }
         if versions.count > 1 {
             Menu("Install Specific Version") {
@@ -642,7 +638,6 @@ struct PackagePickerSheet: View {
                            ? "\(v.version) — latest"
                            : v.version) {
                         onInstallMunki(v)
-                        dismiss()
                     }
                 }
             }
@@ -831,17 +826,21 @@ struct PackagePickerSheet: View {
                 }
                 Spacer()
             }
-            .padding(.horizontal, 10).padding(.vertical, 6)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
             // Inset rounded-rect fill mirrors the macOS .inset List
             // selection style used by the Munki tab. 6pt corner
             // radius matches AppKit's NSTableView selection on
             // Ventura+; the 4pt horizontal inset is the same gutter
             // SwiftUI's List uses around each row.
-            .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(isSelected ? Color.accentColor : Color.clear)
-                    .padding(.horizontal, 4)
-            )
+            .background {
+                if isSelected {
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(Color.accentColor)
+                }
+            }
+            .padding(.horizontal, 4)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -960,12 +959,10 @@ struct PackagePickerSheet: View {
     private func runSelectedMunki() {
         guard let pkg = selectedMunkiPkg, hasInstallTarget else { return }
         onInstallMunki(pkg)
-        dismiss()
     }
 
     private func commit(_ pkg: Package) {
         onInstall(pkg)
         pendingDestructive = nil
-        dismiss()
     }
 }

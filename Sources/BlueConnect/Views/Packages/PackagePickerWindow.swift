@@ -8,19 +8,25 @@ import AppKit
 /// owning `ContentView` reacts via `.onChange`.
 struct PackagePickerWindow: View {
     @Environment(PackagePickerController.self) private var picker
-    @Environment(\.dismissWindow) private var dismissWindow
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         PackagePickerSheet(
             hosts: picker.hosts,
             localTargetName: picker.localTarget?.name,
             onInstall: { pkg in
+                openWindow(id: "main")
+                picker.dismissPickerAfterPendingIntent = true
                 picker.pendingDirectInstall = pkg
             },
             onInstallMunki: { pkg in
+                openWindow(id: "main")
+                picker.dismissPickerAfterPendingIntent = true
                 picker.pendingMunkiInstall = pkg
             },
             onDropFile: { url in
+                openWindow(id: "main")
+                picker.dismissPickerAfterPendingIntent = true
                 picker.pendingFileDrop = url
             }
         )

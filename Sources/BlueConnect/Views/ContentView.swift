@@ -22,6 +22,7 @@ struct ContentView: View {
     @Environment(QuickActionLauncher.self) private var quickActionLauncher
     @Environment(ChatSessionController.self) private var chatController
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.dismissWindow) private var dismissWindow
     @State private var showingSettingsSheet = false
     @State private var sortOrder: [KeyPathComparator<BlueSkyHost>] = [
         KeyPathComparator(\.blueskyid, order: .forward)
@@ -532,22 +533,15 @@ struct ContentView: View {
         // pick fires exactly once even if the window stays open.
         .onChange(of: packagePicker.pendingDirectInstall) { _, pkg in
             guard let pkg = pkg else { return }
-            for h in packagePicker.hosts where h.active {
-                installPackage(pkg, on: h)
-            }
-            packagePicker.pendingDirectInstall = nil
+            handlePendingDirectInstall(pkg)
         }
         .onChange(of: packagePicker.pendingMunkiInstall) { _, pkg in
             guard let pkg = pkg else { return }
-            for h in packagePicker.hosts where h.active {
-                installMunkiPackage(pkg, on: h)
-            }
-            packagePicker.pendingMunkiInstall = nil
+            handlePendingMunkiInstall(pkg)
         }
         .onChange(of: packagePicker.pendingFileDrop) { _, url in
             guard let url = url else { return }
-            handlePackagePickerDrop(url: url, hosts: packagePicker.hosts)
-            packagePicker.pendingFileDrop = nil
+            handlePendingFileDrop(url)
         }
         // Quick Actions browser window writes a Run intent here; we
         // dispatch via the same SSH path as the inline sheet flow, then
@@ -557,13 +551,11 @@ struct ContentView: View {
             runQuickAction(host: run.host, action: run.action, command: run.command)
             quickActionLauncher.pendingRun = nil
         }
-        // Drain any pendingRun that was queued while ContentView wasn't
-        // mounted (e.g. the user opened the Browse window with the main
-        // window closed, clicked Run, then SwiftUI reopens the main
-        // window because openWindow(id: "main") fires from the browser).
-        // .onChange only fires on subsequent transitions; this picks up
-        // the value-already-set case.
+        // Drain any pending window intent that was queued while ContentView
+        // wasn't mounted. .onChange only fires on subsequent transitions;
+        // this picks up the value-already-set case after openWindow("main").
         .task {
+            drainPackagePickerIntents()
             if let run = quickActionLauncher.pendingRun {
                 runQuickAction(host: run.host, action: run.action, command: run.command)
                 quickActionLauncher.pendingRun = nil
@@ -707,12 +699,6 @@ struct ContentView: View {
                 idealWidth: sidebarVisible ? 220 : 22,
                 maxWidth: sidebarVisible ? 280 : 22
             )
-            // Make munkiStore reachable to LocalNetworkRow (and any other
-            // sidebar descendants) via @Environment — needed for the
-            // direct-install Munki path. The store is already passed as
-            // an init param to SidebarView for the MunkiBrowserView call;
-            // this is the same instance, just exposed in the env chain.
-            .environment(munkiStore)
 
             VStack(spacing: 0) {
                 topBar
@@ -1481,6 +1467,131 @@ struct ContentView: View {
                               remoteUser: settings.defaultRemoteUser,
                               command: cmd,
                               label: "install: \(pkg.name)")
+    }
+
+    private func installPackage(_ pkg: Package, on service: LocalService) {
+        guard let cat = packageCatalog.catalog,
+              let cmd = cat.remoteCommand(for: pkg) else { return }
+        runDirectRemoteCommand(cmd, label: "install: \(pkg.name)", on: service)
+    }
+
+    private func installLocalFile(_ url: URL, on service: LocalService) {
+        guard let port = service.sshPort else { return }
+        let target = InstallController.DirectTarget(
+            hostname: service.hostname,
+            port: port,
+            remoteUser: resolvedRemoteUser(for: service),
+            displayName: service.name
+        )
+        installer.prepareDirect(target: target, localFile: url, appMode: .compress)
+        openWindow(id: "install-progress")
+    }
+
+    private func installMunkiPackage(_ pkg: MunkiPkg, on service: LocalService) {
+        guard let port = service.sshPort else { return }
+        guard let loc = pkg.installerItemLocation, !loc.isEmpty else { return }
+        let ext = (loc as NSString).pathExtension.isEmpty
+            ? "pkg" : (loc as NSString).pathExtension
+        let fileName = (loc as NSString).lastPathComponent
+        let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("bcadmin-munki-\(UUID().uuidString).\(ext)")
+        let store = munkiStore
+        let settingsRef = settings
+        let target = InstallController.DirectTarget(
+            hostname: service.hostname,
+            port: port,
+            remoteUser: resolvedRemoteUser(for: service),
+            displayName: service.name
+        )
+        installer.prepareMunkiPendingDirect(target: target,
+                                            expectedFileName: fileName) {
+            try await store.fetch(key: "pkgs/\(loc)", to: tmp, settings: settingsRef)
+            return tmp
+        }
+        openWindow(id: "install-progress")
+    }
+
+    private func runDirectRemoteCommand(_ command: String, label: String,
+                                        on service: LocalService) {
+        guard let port = service.sshPort else { return }
+        let cmd = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cmd.isEmpty else { return }
+        let svc = ConnectionService(
+            server: settings.serverFqdn,
+            adminKeyPath: settings.expandedKeyPath,
+            serverSshPort: settings.sshTunnelPort,
+            terminals: terminals
+        )
+        svc.openDirectRemoteCommand(hostname: service.hostname,
+                                    port: port,
+                                    remoteUser: resolvedRemoteUser(for: service),
+                                    command: cmd,
+                                    label: label)
+    }
+
+    private func resolvedRemoteUser(for service: LocalService) -> String {
+        service.source == .tailscale
+            ? settings.tailscaleUser(for: service.name)
+            : settings.defaultRemoteUser
+    }
+
+    private func drainPackagePickerIntents() {
+        if let pkg = packagePicker.pendingDirectInstall {
+            handlePendingDirectInstall(pkg)
+        } else if let pkg = packagePicker.pendingMunkiInstall {
+            handlePendingMunkiInstall(pkg)
+        } else if let url = packagePicker.pendingFileDrop {
+            handlePendingFileDrop(url)
+        }
+    }
+
+    private func handlePendingDirectInstall(_ pkg: Package) {
+        if let localTarget = packagePicker.localTarget {
+            installPackage(pkg, on: localTarget)
+            packagePicker.pendingDirectInstall = nil
+            packagePicker.localTarget = nil
+            dismissPackagePickerIfNeeded()
+            return
+        }
+        for h in packagePicker.hosts where h.active {
+            installPackage(pkg, on: h)
+        }
+        packagePicker.pendingDirectInstall = nil
+        dismissPackagePickerIfNeeded()
+    }
+
+    private func handlePendingMunkiInstall(_ pkg: MunkiPkg) {
+        if let localTarget = packagePicker.localTarget {
+            installMunkiPackage(pkg, on: localTarget)
+            packagePicker.pendingMunkiInstall = nil
+            packagePicker.localTarget = nil
+            dismissPackagePickerIfNeeded()
+            return
+        }
+        for h in packagePicker.hosts where h.active {
+            installMunkiPackage(pkg, on: h)
+        }
+        packagePicker.pendingMunkiInstall = nil
+        dismissPackagePickerIfNeeded()
+    }
+
+    private func handlePendingFileDrop(_ url: URL) {
+        if let localTarget = packagePicker.localTarget {
+            installLocalFile(url, on: localTarget)
+            packagePicker.pendingFileDrop = nil
+            packagePicker.localTarget = nil
+            dismissPackagePickerIfNeeded()
+            return
+        }
+        handlePackagePickerDrop(url: url, hosts: packagePicker.hosts)
+        packagePicker.pendingFileDrop = nil
+        dismissPackagePickerIfNeeded()
+    }
+
+    private func dismissPackagePickerIfNeeded() {
+        guard packagePicker.dismissPickerAfterPendingIntent else { return }
+        packagePicker.dismissPickerAfterPendingIntent = false
+        dismissWindow(id: "package-picker")
     }
 
     private func assignCategoryDirect(_ category: String?, to hosts: [BlueSkyHost]) {
