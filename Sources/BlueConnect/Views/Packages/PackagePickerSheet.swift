@@ -545,15 +545,18 @@ struct PackagePickerSheet: View {
                 let favs = MunkiFavorites.decode(munkiFavoritesRaw)
                 let favoriteRows = filteredMunki.filter { favs.contains($0.name) }
                 let otherRows    = filteredMunki.filter { !favs.contains($0.name) }
+                // No `.simultaneousGesture(TapGesture(count: 2))` on
+                // these rows. It races with List's built-in
+                // tap-to-select on macOS and was eating single clicks
+                // (3–4 click selection). The footer Install button is
+                // the explicit commit path; double-click-to-install
+                // is not worth a broken selection click.
                 List(selection: $selectedMunki) {
                     if !favoriteRows.isEmpty {
                         Section("Favorites") {
                             ForEach(favoriteRows) { pkg in
                                 munkiRow(pkg, isFavorite: true)
                                     .tag(pkg.id)
-                                    .simultaneousGesture(
-                                        TapGesture(count: 2).onEnded { runSelectedMunki() }
-                                    )
                                     .contextMenu { munkiVersionsMenu(for: pkg) }
                             }
                         }
@@ -562,13 +565,6 @@ struct PackagePickerSheet: View {
                         ForEach(otherRows) { pkg in
                             munkiRow(pkg, isFavorite: false)
                                 .tag(pkg.id)
-                                // simultaneousGesture leaves List's built-in
-                                // single-tap selection intact (a plain
-                                // .onTapGesture intercepts the tap and
-                                // sometimes wedges selection state).
-                                .simultaneousGesture(
-                                    TapGesture(count: 2).onEnded { runSelectedMunki() }
-                                )
                                 .contextMenu { munkiVersionsMenu(for: pkg) }
                         }
                     }
@@ -666,9 +662,13 @@ struct PackagePickerSheet: View {
                     }
                 }
             }
-            Spacer()
+            Spacer(minLength: 0)
         }
         .padding(.vertical, 2)
+        // contentShape makes the entire HStack — including the
+        // Spacer's empty area — hit-test as one rectangle so List's
+        // selection picks up clicks anywhere on the row.
+        .contentShape(Rectangle())
     }
 
     @ViewBuilder

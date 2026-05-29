@@ -237,7 +237,13 @@ struct MunkiBrowserView: View {
                     }
                 }
             }
+            // Spacer + contentShape extend the row's hit area to the
+            // full width so single-clicks anywhere on the row select
+            // it. Without these, only the actual text glyphs are
+            // hit-testable and clicks in the row's whitespace miss.
+            Spacer(minLength: 0)
         }
+        .contentShape(Rectangle())
     }
 
     @ViewBuilder

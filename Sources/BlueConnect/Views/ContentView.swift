@@ -1061,6 +1061,7 @@ struct ContentView: View {
                 }
                 .disabled(!h.active)
                 Divider()
+                Button("Rename…") { renameTarget = h }
                 Menu("Set Category") {
                     if !categories.categories.isEmpty {
                         ForEach(categories.categories, id: \.self) { cat in
@@ -1075,7 +1076,6 @@ struct ContentView: View {
                         showingCategorySheet = true
                     }
                 }
-                Button("Rename…") { renameTarget = h }
                 Divider()
                 // (Install moved up — see the flat "Install…" button
                 // just under SSH / VNC. Source picking (Munki /
