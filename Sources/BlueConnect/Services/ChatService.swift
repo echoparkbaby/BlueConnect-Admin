@@ -117,6 +117,18 @@ final class ChatService: ObservableObject, Identifiable {
         // mode 0777). If it's missing or not writable, the mkdir below
         // would fail with a cryptic permission-denied; explain instead
         // so the operator knows the fix is to re-run helper setup.
+        // Probe steps:
+        //   1. inbox/ exists  → helper setup ran at least once
+        //   2. chat dir writable
+        //   3. chat binary executable
+        //   4. **Liveness probe:** drop a no-op job into inbox, wait
+        //      up to ~3 s for the LaunchAgent's WatchPaths to fire
+        //      and the helper to consume (delete) the file. The
+        //      helper is a one-shot script (not a daemon) so
+        //      `pgrep` was the wrong test — it returned empty even
+        //      when the agent was correctly loaded. The probe
+        //      command is `osascript -e ''` which the helper's
+        //      allowlist accepts and which produces no UI.
         let probeCmd = #"""
         if [ ! -d "/Library/Application Support/BlueConnect/inbox" ]; then \
           echo "MISSING_HELPER"; exit 1; \
@@ -127,10 +139,15 @@ final class ChatService: ObservableObject, Identifiable {
         if [ ! -x "/usr/local/bin/blueconnect-chat" ]; then \
           echo "MISSING_CHAT_BINARY"; exit 1; \
         fi; \
-        if ! pgrep -f blueconnect-gui-helper >/dev/null 2>&1; then \
-          echo "HELPER_NOT_RUNNING"; exit 1; \
-        fi; \
-        echo "OK"
+        PROBE="/Library/Application Support/BlueConnect/inbox/probe-$$-$(date +%s).job"; \
+        printf '%s\n' "osascript -e 'return 0'" > "$PROBE"; \
+        chmod 0644 "$PROBE" 2>/dev/null || true; \
+        for i in 1 2 3 4 5 6; do \
+          sleep 0.5; \
+          if [ ! -e "$PROBE" ]; then echo "OK"; exit 0; fi; \
+        done; \
+        rm -f "$PROBE" 2>/dev/null || true; \
+        echo "HELPER_NOT_RUNNING"; exit 1
         """#
         let probe = await runShellCaptured(probeCmd)
         guard probe.status == 0 else {
