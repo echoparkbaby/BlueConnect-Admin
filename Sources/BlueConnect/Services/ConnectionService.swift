@@ -501,6 +501,17 @@ struct ConnectionService {
     /// Establish the SSH local-forward in Terminal.app and immediately
     /// hand off to Screen Sharing via `vnc://`. Tunnel runs in the
     /// foreground of the terminal tab so the user sees its lifetime.
+    ///
+    /// `remoteUser` reaches us from `host.username`, which is the
+    /// `computers.username` column on the BSC server — writable by the
+    /// fleet Mac's own BlueSky agent and by anything with BSC HTTP Basic
+    /// creds. Treat it as untrusted: the SSH-arg form gets shellQuote'd,
+    /// AND the `vnc://` URL gets URL-percent-encoded for the userinfo
+    /// subcomponent (which strips the `'` that would otherwise break
+    /// out of the surrounding single-quoted `open '…'`). Without both
+    /// guards a malicious `username` like `alice'; do shell script "…"; '`
+    /// would execute in the admin's shell when they opened VNC via
+    /// Terminal.
     func openVNCInTerminal(host: BlueSkyHost, remoteUser: String) {
         onConnect?(host)
         let user = remoteUser.isEmpty ? "ladmin" : remoteUser
@@ -510,8 +521,10 @@ struct ConnectionService {
         }
         Log.info("VNC", "openVNCInTerminal #\(host.blueskyid) \(host.displayName): local port \(localPort)")
         let proxy = "ProxyCommand=ssh -o WarnWeakCrypto=no -p \(serverSshPort) -i \(adminKeyPath) admin@\(server) /bin/nc %h %p"
+        let vncUser = user.addingPercentEncoding(withAllowedCharacters: .urlUserAllowed) ?? user
+        let vncURL  = shellQuote("vnc://\(vncUser)@localhost:\(localPort)")
         let cmd = """
-        ssh -N -T -o '\(proxy)' -o StrictHostKeyChecking=no -o WarnWeakCrypto=no -o ExitOnForwardFailure=yes -L \(localPort):localhost:5900 -p \(host.sshPort) \(shellQuote(user))@localhost & TUN=$! ; sleep 1 ; open 'vnc://\(user)@localhost:\(localPort)' ; wait $TUN
+        ssh -N -T -o '\(proxy)' -o StrictHostKeyChecking=no -o WarnWeakCrypto=no -o ExitOnForwardFailure=yes -L \(localPort):localhost:5900 -p \(host.sshPort) \(shellQuote(user))@localhost & TUN=$! ; sleep 1 ; open \(vncURL) ; wait $TUN
         """
         runInTerminal(command: cmd)
     }
