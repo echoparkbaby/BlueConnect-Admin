@@ -389,11 +389,23 @@ struct ConnectionService {
 
     /// Open `ssh user@host -p port` in an embedded terminal tab. No
     /// ProxyCommand — the target is on the local network already.
+    ///
+    /// Note on StrictHostKeyChecking: BSC-tunneled paths use `=no`
+    /// because the BSC server is the trust boundary; the inner host
+    /// key isn't independently verifiable. Direct-LAN paths (this
+    /// function and the three siblings below) instead use
+    /// `=accept-new` — quietly pins the key on first connect (same
+    /// click-to-go UX as before) but **refuses** to reconnect if the
+    /// pinned key later changes. That catches active LAN MITM on
+    /// untrusted networks (customer LANs / coffee shops / hotel
+    /// Wi-Fi) without prompting on first contact. Cost: if a fleet
+    /// host is legitimately wiped + reinstalled, the operator has
+    /// to `ssh-keygen -R <host>` once to drop the stale key.
     func openDirectSSH(hostname: String, port: Int, remoteUser: String) {
         Log.info("Local", "ssh \(remoteUser)@\(hostname):\(port)")
         let args = [
             "-t",
-            "-o", "StrictHostKeyChecking=no",
+            "-o", "StrictHostKeyChecking=accept-new",
             "-o", "WarnWeakCrypto=no",
             "-p", "\(port)",
             "\(remoteUser)@\(hostname)",
@@ -418,7 +430,8 @@ struct ConnectionService {
     /// Terminal.app instead of the embedded terminal pane — useful when
     /// the user wants a standalone window they can split, tab, etc.
     func openDirectSSHInTerminal(hostname: String, port: Int, remoteUser: String) {
-        let cmd = "ssh -t -o StrictHostKeyChecking=no -o WarnWeakCrypto=no -p \(port) \(shellQuote(remoteUser))@\(shellQuote(hostname))"
+        // accept-new (not no) — see openDirectSSH docs for rationale.
+        let cmd = "ssh -t -o StrictHostKeyChecking=accept-new -o WarnWeakCrypto=no -p \(port) \(shellQuote(remoteUser))@\(shellQuote(hostname))"
         runInTerminal(command: cmd)
     }
 
@@ -427,7 +440,8 @@ struct ConnectionService {
     /// SCP path does.
     func openDirectSCP(hostname: String, port: Int, remoteUser: String, sourceURL: URL) {
         let args = [
-            "-o", "StrictHostKeyChecking=no",
+            // accept-new — see openDirectSSH docs for rationale.
+            "-o", "StrictHostKeyChecking=accept-new",
             "-o", "WarnWeakCrypto=no",
             "-P", "\(port)", sourceURL.path,
             "\(remoteUser)@\(hostname):~/Desktop/",
@@ -447,7 +461,8 @@ struct ConnectionService {
                                  command: String, label: String) {
         let args = [
             "-t",
-            "-o", "StrictHostKeyChecking=no",
+            // accept-new — see openDirectSSH docs for rationale.
+            "-o", "StrictHostKeyChecking=accept-new",
             "-o", "WarnWeakCrypto=no",
             "-p", "\(port)", "\(remoteUser)@\(hostname)",
             command,
