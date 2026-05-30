@@ -131,8 +131,14 @@ struct LocalNetworkRow: View {
 
             Divider()
             Button("Copy hostname") {
+                let host = service.displayHostname
+                guard Self.isSafeHostnameForClipboard(host) else {
+                    Log.warn("Local",
+                             "Refusing to copy hostname — failed RFC 1035 check (chars=\(host.unicodeScalars.count))")
+                    return
+                }
                 NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(service.displayHostname, forType: .string)
+                NSPasteboard.general.setString(host, forType: .string)
             }
             if service.hasSSH {
                 Button("Copy SSH Command") { copySSHCommand() }
@@ -325,11 +331,40 @@ struct LocalNetworkRow: View {
 
     /// Copy a ready-to-paste `ssh user@host -p port` form (uses the
     /// dot-stripped hostname so paste targets stay clean).
+    ///
+    /// `service.displayHostname` is taken from Bonjour SRV records
+    /// announced on the LAN, which an adversary on the same network
+    /// can spoof. We refuse to copy anything that isn't a strict RFC
+    /// 1035 hostname so a malicious announcement like
+    /// `victim.local && rm -rf $HOME` can't land in the operator's
+    /// clipboard and run when they paste-and-Enter. Modern terminals'
+    /// bracketed-paste defence catches naive payloads but the attacker
+    /// can use escape sequences to defeat it; refusing at the source
+    /// is the simpler guarantee.
     private func copySSHCommand() {
         guard let port = service.sshPort else { return }
-        let cmd = "ssh -p \(port) \(resolvedRemoteUser)@\(service.displayHostname)"
+        let host = service.displayHostname
+        guard Self.isSafeHostnameForClipboard(host) else {
+            Log.warn("Local",
+                     "Refusing to copy SSH command — host name failed RFC 1035 check (chars=\(host.unicodeScalars.count))")
+            return
+        }
+        let cmd = "ssh -p \(port) \(resolvedRemoteUser)@\(host)"
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(cmd, forType: .string)
+    }
+
+    /// `^[A-Za-z0-9.-]{1,253}$`. Bonjour `.local` hostnames Apple
+    /// emits are always in this charset; anything outside it on the
+    /// LAN is either a misconfigured device or an active spoof.
+    private static func isSafeHostnameForClipboard(_ s: String) -> Bool {
+        guard !s.isEmpty, s.count <= 253 else { return false }
+        return s.unicodeScalars.allSatisfy { sc in
+            (sc >= "A" && sc <= "Z")
+            || (sc >= "a" && sc <= "z")
+            || (sc >= "0" && sc <= "9")
+            || sc == "." || sc == "-"
+        }
     }
 
 }
