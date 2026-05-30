@@ -1,6 +1,15 @@
 #!/bin/bash
-# End-to-end release: build → sign → dmg → notarize → staple → GitHub Release.
-# Requires .env-sign with SIGN_ID, NOTARY_PROFILE, GITHUB_REPO populated.
+# End-to-end release: build → sign → dmg → notarize → staple → GitHub
+# Release + Forgejo Release. Uploads two assets per release:
+#   - BlueConnect-Admin.dmg     (the Mac app, drag-installer)
+#   - BlueConnectHelper.pkg     (Munki-deployable chat helper + LaunchAgent;
+#                                URL is hard-linked from the in-app
+#                                "Setup: Install GUI Helper" Quick Action)
+#
+# Requires .env-sign with SIGN_ID, PKG_SIGN_ID, NOTARY_PROFILE,
+# GITHUB_REPO populated. Forgejo upload is gated on FORGEJO_BASE /
+# FORGEJO_TOKEN — script skips it silently if those aren't set.
+#
 # Requires the `gh` CLI (https://cli.github.com) authenticated with repo scope.
 #
 # Usage:  bash release.sh v0.2.0
@@ -21,6 +30,8 @@ set -a; source "$PROJECT_ROOT/.env-sign"; set +a
 
 DMG_NAME="${DMG_NAME:-BlueConnect-Admin.dmg}"
 DMG="$PROJECT_ROOT/$DMG_NAME"
+HELPER_PKG_NAME="${HELPER_PKG_NAME:-BlueConnectHelper.pkg}"
+HELPER_PKG="$PROJECT_ROOT/$HELPER_PKG_NAME"
 
 # Derive Info.plist VERSION from the tag (strip leading 'v') and BUILD_NUMBER
 # from the count of git tags + 1 (monotonic without manual bumping). Both are
@@ -52,16 +63,29 @@ echo "▶ push tag to github + origin"
 git push github "$TAG" 2>/dev/null || echo "  (github tag push skipped)"
 git push origin "$TAG" 2>/dev/null || echo "  (origin tag push skipped)"
 
+# Build the Munki-deployable helper pkg (chat client + GUI helper +
+# LaunchAgent plist) as the second release asset. The in-app
+# "Setup: Install GUI Helper" Quick Action links operators at
+# https://github.com/<repo>/releases/download/<tag>/BlueConnectHelper.pkg —
+# they'd hit a 404 if we forgot to build + upload it here.
+# `--notarize` makes the pkg builder do its own notarize + staple
+# pass (separate notarytool submission from the DMG above).
+# PKG_VERSION is exported so the pkg's CFBundleShortVersionString
+# matches $VERSION even before the new tag has propagated to
+# `git describe`.
+echo "▶ build BlueConnectHelper.pkg (notarized + stapled)"
+PKG_VERSION="$VERSION" bash "$PROJECT_ROOT/scripts/build-helper-pkg.sh" --notarize
+
 NOTES="${RELEASE_NOTES_FILE:-$PROJECT_ROOT/RELEASE_NOTES.md}"
 
 echo "▶ gh release create (GitHub)"
 if [[ -f "$NOTES" ]]; then
-    gh release create "$TAG" "$DMG" \
+    gh release create "$TAG" "$DMG" "$HELPER_PKG" \
         --repo "$GITHUB_REPO" \
         --title "$TAG" \
         --notes-file "$NOTES"
 else
-    gh release create "$TAG" "$DMG" \
+    gh release create "$TAG" "$DMG" "$HELPER_PKG" \
         --repo "$GITHUB_REPO" \
         --title "$TAG" \
         --generate-notes
@@ -90,11 +114,16 @@ if [[ -n "${FORGEJO_BASE:-}" && -n "${FORGEJO_TOKEN:-}" ]]; then
     if [[ -z "$REL_ID" ]]; then
         echo "  ⚠ Forgejo release create failed: $REL_RESP"
     else
-        echo "  release id: $REL_ID — uploading DMG"
+        echo "  release id: $REL_ID — uploading DMG + helper pkg"
         curl -sS -X POST \
             -H "Authorization: token $FORGEJO_TOKEN" \
             -F "attachment=@$DMG" \
             "$FORGEJO_BASE/api/v1/repos/$FORGEJO_REPO_PATH/releases/$REL_ID/assets?name=$DMG_NAME" \
+            > /dev/null
+        curl -sS -X POST \
+            -H "Authorization: token $FORGEJO_TOKEN" \
+            -F "attachment=@$HELPER_PKG" \
+            "$FORGEJO_BASE/api/v1/repos/$FORGEJO_REPO_PATH/releases/$REL_ID/assets?name=$HELPER_PKG_NAME" \
             > /dev/null
         echo "  ✅ Forgejo: $FORGEJO_BASE/$FORGEJO_REPO_PATH/releases/tag/$TAG"
     fi
