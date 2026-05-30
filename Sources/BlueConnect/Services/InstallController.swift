@@ -595,9 +595,16 @@ final class InstallController {
             [ -z "${status:-}" ] || exit "$status"
             """
         } else if appRawMode {
+            // appName comes from the dropped file's basename so it's
+            // operator-controlled, but every other interpolation in
+            // this script is shq'd — keep the convention so the next
+            // person who edits this block doesn't accidentally drop
+            // a different unquoted value in. The double-quoted form
+            // here was a latent metachar issue (would've broken on
+            // valid .app names containing `"` or `$`).
             installSteps = """
             echo '▶ phase=copying' && \
-            rm -rf "/Applications/\(appName).app" && \
+            rm -rf /Applications/\(Self.shq("\(appName).app")) && \
             mv \(Self.shq(remotePath)) /Applications/
             """
         } else {
