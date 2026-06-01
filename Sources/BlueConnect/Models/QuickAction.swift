@@ -42,14 +42,16 @@ struct QuickAction: Identifiable, Hashable {
         static let userAccounts  = Category(rawValue: "User Accounts")
         static let fileVault     = Category(rawValue: "FileVault")
         static let security      = Category(rawValue: "Security & MDM")
-        static let fleet         = Category(rawValue: "BlueConnect Fleet")
+        static let fleet         = Category(rawValue: "BlueConnect")
         static let munki         = Category(rawValue: "Munki")
         static let munkiReport   = Category(rawValue: "MunkiReport")
         static let packages      = Category(rawValue: "Packages")
         static let software      = Category(rawValue: "Software")
+        static let shutdown      = Category(rawValue: "Shutdown")
+        static let spotlight     = Category(rawValue: "Spotlight")
         static let system        = Category(rawValue: "System")
         static let diagnostics   = Category(rawValue: "Diagnostics")
-        static let disk          = Category(rawValue: "Disk & Spotlight")
+        static let disk          = Category(rawValue: "Disk")
         static let timeMachine   = Category(rawValue: "Time Machine")
         static let email         = Category(rawValue: "Email")
         static let privacy       = Category(rawValue: "Privacy & TCC")
@@ -71,8 +73,9 @@ struct QuickAction: Identifiable, Hashable {
             .secureTokens, .userAccounts, .fileVault, .security,
             .fleet,
             .munki, .munkiReport, .packages, .software,
+            .shutdown,
             .system, .diagnostics,
-            .disk, .timeMachine,
+            .disk, .spotlight, .timeMachine,
             .email,
             .privacy,
             .processApp,

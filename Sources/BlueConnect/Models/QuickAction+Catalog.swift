@@ -134,7 +134,7 @@ extension QuickAction {
 
         // 4. Hide or Unhide User (merged: single sheet, mode picker)
         QuickAction(
-            id: "hideUnhideUser", label: "Hide or Unhide User…",
+            id: "hideUnhideUser", label: "Hide/Unhide User…",
             category: .userAccounts,
             icon: "eye.slash",
             fields: [
@@ -250,7 +250,7 @@ extension QuickAction {
         // identity slots. Picker controls which slot(s) get touched.
         QuickAction(
             id: "setHostname",
-            label: "Set Computer Name…",
+            label: "Rename Computer…",
             category: .system,
             icon: "tag.square",
             fields: [
@@ -301,7 +301,7 @@ extension QuickAction {
         QuickAction(
             id: "shutdownGraceful",
             label: "Shut Down (Graceful)…",
-            category: .system,
+            category: .shutdown,
             icon: "power",
             fields: [
                 .init(id: "delay", label: "Delay",
@@ -332,7 +332,7 @@ extension QuickAction {
         QuickAction(
             id: "shutdownNow",
             label: "Shut Down (Now)",
-            category: .system,
+            category: .shutdown,
             icon: "power.circle.fill",
             fields: [],
             tabLabel: "shutdown-now",
@@ -346,7 +346,7 @@ extension QuickAction {
         QuickAction(
             id: "restartNow",
             label: "Restart (Now)",
-            category: .system,
+            category: .shutdown,
             icon: "arrow.clockwise.circle.fill",
             fields: [],
             tabLabel: "restart-now",
@@ -549,6 +549,31 @@ extension QuickAction {
             help: "One-shot snapshot of the top 20 processes ranked by resident memory.",
             buildCommand: { _ in "top -l 1 -o rsize -n 20" }
         ),
+        QuickAction(
+            id: "diagTopCPU", label: "Top CPU hogs",
+            category: .diagnostics, icon: "cpu", fields: [],
+            tabLabel: "top-cpu", isDestructive: false,
+            help: "Top 20 processes by CPU usage. Uses two samples one second apart so the %CPU column shows real activity (not lifetime average). Pipes through `tail -27` to drop the first sample and show only the second.",
+            buildCommand: { _ in "top -l 2 -s 1 -o cpu -n 20 | tail -27" }
+        ),
+        QuickAction(
+            id: "diagLoadAvg", label: "Load average + uptime",
+            category: .diagnostics, icon: "speedometer", fields: [],
+            tabLabel: "uptime", isDestructive: false,
+            help: "1-/5-/15-minute load averages plus host uptime. Compare against logical CPU count — a load of 8 on an 8-core box is fully saturated; on a 4-core box that's 2× overcommit.",
+            buildCommand: { _ in "uptime" }
+        ),
+        QuickAction(
+            id: "diagCpuCores", label: "CPU core count + model",
+            category: .diagnostics, icon: "cpu.fill", fields: [],
+            tabLabel: "cpu-info", isDestructive: false,
+            help: "Logical CPU count, physical core count, and CPU brand string. Useful as a denominator when reading the load averages above.",
+            buildCommand: { _ in
+                "echo 'Logical CPUs:'; sysctl -n hw.logicalcpu; "
+                + "echo; echo 'Physical cores:'; sysctl -n hw.physicalcpu; "
+                + "echo; echo 'Brand:'; sysctl -n machdep.cpu.brand_string"
+            }
+        ),
 
         // MARK: - Time Machine
 
@@ -572,7 +597,7 @@ extension QuickAction {
         // MARK: - BlueConnect Fleet
 
         QuickAction(
-            id: "fleetKickstart", label: "BlueConnect agent: kickstart",
+            id: "fleetKickstart", label: "Kickstart Agent",
             category: .fleet, icon: "bolt.circle.fill", fields: [],
             tabLabel: "bsc-kick", isDestructive: false,
             help: "Restarts the BlueConnect (BlueSky) launchd agent on the host. Use when a Mac's tunnel is stuck or you've just rotated keys server-side.",
@@ -711,8 +736,8 @@ extension QuickAction {
             buildCommand: { _ in "diskutil info /" }
         ),
         QuickAction(
-            id: "spotlightStatus", label: "Spotlight: status (boot vol)",
-            category: .disk, icon: "magnifyingglass", fields: [],
+            id: "spotlightStatus", label: "Status (boot vol)",
+            category: .spotlight, icon: "magnifyingglass", fields: [],
             tabLabel: "mdutil-status", isDestructive: false,
             help: "Whether Spotlight indexing is currently enabled on the boot volume, and whether indexing is in progress.",
             buildCommand: { _ in "mdutil -s /" }
@@ -720,8 +745,8 @@ extension QuickAction {
         // Spotlight rebuild (merged Quick + Full Reset — mode picker)
         QuickAction(
             id: "spotlightRebuild",
-            label: "Spotlight: rebuild…",
-            category: .disk, icon: "arrow.triangle.2.circlepath",
+            label: "Rebuild…",
+            category: .spotlight, icon: "arrow.triangle.2.circlepath",
             fields: [
                 .init(id: "mode", label: "Mode",
                       placeholder: "", kind: .picker([
@@ -760,7 +785,7 @@ extension QuickAction {
 
         QuickAction(
             id: "mailRebuildEnvelopeIndex",
-            label: "Mail: rebuild envelope index (console user)",
+            label: "Rebuild envelope index (console user)",
             category: .email, icon: "envelope.badge", fields: [],
             tabLabel: "mail-rebuild", isDestructive: false,
             help: """
@@ -1034,7 +1059,7 @@ extension QuickAction {
         // the agent. Safe to re-run after macOS upgrades.
         QuickAction(
             id: "setupGuiHelper",
-            label: "Setup: Install GUI Helper",
+            label: "Install GUI Helper",
             category: .miscellaneous, icon: "wand.and.rays",
             fields: [],
             tabLabel: "setup-gui-helper", isDestructive: true,
@@ -1242,7 +1267,7 @@ extension QuickAction {
         // uninstall path is "remove from manifest" instead.
         QuickAction(
             id: "uninstallGuiHelper",
-            label: "Setup: Uninstall GUI Helper",
+            label: "Uninstall GUI Helper",
             category: .miscellaneous, icon: "trash",
             fields: [],
             tabLabel: "uninstall-gui-helper", isDestructive: true,
