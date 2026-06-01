@@ -186,8 +186,10 @@ struct ActionList {
     }
 
     /// `[(category-label, [actions])]` — categories alphabetized
-    /// case-insensitively. Used to render the menubar submenus and the
-    /// browser-window sidebar consistently.
+    /// case-insensitively, AND each category's actions alphabetized
+    /// case-insensitively by label. Used to render the menubar submenus
+    /// and the browser-window sidebar consistently, so the catalog's
+    /// declaration order doesn't bleed into the UI.
     var grouped: [(String, [QuickAction])] {
         var byCat: [String: [QuickAction]] = [:]
         for a in actions {
@@ -195,7 +197,12 @@ struct ActionList {
         }
         return byCat.keys
             .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
-            .map { ($0, byCat[$0] ?? []) }
+            .map { key in
+                let sorted = (byCat[key] ?? []).sorted {
+                    $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending
+                }
+                return (key, sorted)
+            }
     }
 }
 
