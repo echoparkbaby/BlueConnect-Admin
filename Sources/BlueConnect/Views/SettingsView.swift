@@ -399,9 +399,9 @@ struct SettingsView: View {
             HStack {
                 Spacer()
                 Button {
-                    openURL(URL(string: "https://hub.docker.com/r/sphen/bluesky/tags")!)
+                    openURL(URL(string: "https://github.com/BlueSkyTools/BlueSkyConnect/pkgs/container/blueskyconnect")!)
                 } label: {
-                    Label("sphen/bluesky tags ↗", systemImage: "arrow.up.right.square")
+                    Label("Container image ↗", systemImage: "arrow.up.right.square")
                 }
                 .buttonStyle(.link)
                 Button {
