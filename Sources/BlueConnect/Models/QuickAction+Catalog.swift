@@ -295,6 +295,66 @@ extension QuickAction {
             }
         ),
 
+        // Graceful shutdown — gives the console user a 1-minute wall
+        // warning so they can save and bail; `shutdown` then runs the
+        // full graceful path (SIGTERM → wait → SIGKILL).
+        QuickAction(
+            id: "shutdownGraceful",
+            label: "Shut Down (Graceful)…",
+            category: .system,
+            icon: "power",
+            fields: [
+                .init(id: "delay", label: "Delay",
+                      placeholder: "", kind: .picker([
+                        .init(label: "1 minute (default)",   value: "+1"),
+                        .init(label: "2 minutes",            value: "+2"),
+                        .init(label: "5 minutes",            value: "+5"),
+                        .init(label: "10 minutes",           value: "+10"),
+                      ]), defaultValue: "+1"),
+                .init(id: "message", label: "Wall message",
+                      placeholder: "BlueConnect: shutting down…",
+                      kind: .text,
+                      defaultValue: "BlueConnect: shutting down…"),
+            ],
+            tabLabel: "shutdown-graceful",
+            isDestructive: true,
+            help: "Schedules a graceful shutdown. Every logged-in user gets a wall message on their terminal sessions and ten-second-interval reminders as the deadline approaches. macOS sends SIGTERM to running apps (15s timeout) before SIGKILL, so most apps get to save state.",
+            buildCommand: { v in
+                let delay = v["delay"] ?? "+1"
+                let msg   = v["message"] ?? "BlueConnect: shutting down…"
+                return "sudo shutdown -h \(delay) \(shq(msg))"
+            }
+        ),
+
+        // Hard shutdown — `shutdown -h now` is the standard immediate
+        // form. Still sends SIGTERM/SIGKILL to processes (so apps get a
+        // sliver of cleanup time), but no warning to the console user.
+        QuickAction(
+            id: "shutdownNow",
+            label: "Shut Down (Now)",
+            category: .system,
+            icon: "power.circle.fill",
+            fields: [],
+            tabLabel: "shutdown-now",
+            isDestructive: true,
+            help: "Immediate shutdown. No warning to the console user, no opportunity to save work in open apps. Use when the host is unattended or you've already evacuated users. Filesystem stays consistent (this is a real shutdown, not a power cut).",
+            buildCommand: { _ in "sudo shutdown -h now" }
+        ),
+
+        // Restart — same shape as Shut Down (Now), but `-r` reboots
+        // instead of powering off.
+        QuickAction(
+            id: "restartNow",
+            label: "Restart (Now)",
+            category: .system,
+            icon: "arrow.clockwise.circle.fill",
+            fields: [],
+            tabLabel: "restart-now",
+            isDestructive: true,
+            help: "Immediate restart. No warning to the console user. Apps get SIGTERM (15s) then SIGKILL; pending writes flush before the kernel reboots. Use for patch installs that need a reboot to complete, or to recover a wedged host.",
+            buildCommand: { _ in "sudo shutdown -r now" }
+        ),
+
         // Scrollbars — Always visible
         QuickAction(
             id: "scrollbarsAlways",
