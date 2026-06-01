@@ -6,26 +6,32 @@ import AppKit
 /// that was glued to the parent window). Reads `hosts` from the shared
 /// controller and writes install / file-drop intents back to it; the
 /// owning `ContentView` reacts via `.onChange`.
+///
+/// IMPORTANT: do NOT call `openWindow(id: "main")` from the onInstall
+/// callbacks below. The main scene is a `WindowGroup` (not a `Window`),
+/// so `openWindow(id: "main")` opens a *new* main window instance every
+/// time, not a focus call on the existing one. This presented as a
+/// "brand new window + black drawer" after picking a Remote package from
+/// a Local Network host's context menu (see commit history). The picker
+/// is only reachable from a context menu inside the main window, so the
+/// main window is always already alive to receive the intent via its
+/// existing `.onChange(of: picker.pendingDirectInstall)`.
 struct PackagePickerWindow: View {
     @Environment(PackagePickerController.self) private var picker
-    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         PackagePickerSheet(
             hosts: picker.hosts,
             localTargetName: picker.localTarget?.name,
             onInstall: { pkg in
-                openWindow(id: "main")
                 picker.dismissPickerAfterPendingIntent = true
                 picker.pendingDirectInstall = pkg
             },
             onInstallMunki: { pkg in
-                openWindow(id: "main")
                 picker.dismissPickerAfterPendingIntent = true
                 picker.pendingMunkiInstall = pkg
             },
             onDropFile: { url in
-                openWindow(id: "main")
                 picker.dismissPickerAfterPendingIntent = true
                 picker.pendingFileDrop = url
             }
