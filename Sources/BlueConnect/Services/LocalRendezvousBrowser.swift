@@ -71,10 +71,33 @@ final class LocalRendezvousBrowser {
     }
 
     fileprivate func handleRemoved(_ service: NetService, kind: ServiceKind) {
-        guard let host = service.hostName?.lowercased() else { return }
-        switch kind {
-        case .ssh: sshPorts.removeValue(forKey: host)
-        case .vnc: vncPorts.removeValue(forKey: host)
+        // `service.hostName` is nil on a Bonjour goodbye packet (we only
+        // got it during the original resolve(withTimeout:), and the
+        // browser doesn't re-run that on removal). So fall back to a
+        // reverse-lookup against `nameForHost`, which we populated on
+        // resolve. Without this fallback, renaming a Mac left the old
+        // service entry stuck in the sidebar — the new name showed up
+        // alongside the old one instead of replacing it.
+        Log.info("Bonjour", "removed \(kind.rawValue) '\(service.name)' in \(service.domain)")
+        let name = service.name
+        let matchingHosts = nameForHost.compactMap { (host, n) in n == name ? host : nil }
+        guard !matchingHosts.isEmpty else {
+            // Resolve never completed for this service (TTL expired or
+            // browser sees the goodbye before the resolve replies). No
+            // cached host to clean up.
+            return
+        }
+        for host in matchingHosts {
+            switch kind {
+            case .ssh: sshPorts.removeValue(forKey: host)
+            case .vnc: vncPorts.removeValue(forKey: host)
+            }
+            // Only drop the host's friendly name once BOTH the SSH and
+            // VNC announcements for it are gone, so a host that runs
+            // both stays labeled correctly when only one service exits.
+            if sshPorts[host] == nil && vncPorts[host] == nil {
+                nameForHost.removeValue(forKey: host)
+            }
         }
         rebuild()
     }
