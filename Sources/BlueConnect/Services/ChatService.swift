@@ -193,7 +193,12 @@ final class ChatService: ObservableObject, Identifiable {
             case "MISSING_CHAT_DIR":
                 msg = "The chat directory hasn't been set up on \(host.displayName) — likely installed before the chat feature shipped. Reinstall the GUI Helper to add the missing /chat folder."
             case "MISSING_CHAT_BINARY":
-                msg = "/usr/local/bin/blueconnect-chat is missing on \(host.displayName). The chat binary install is currently a separate step from the GUI Helper setup (in-app installer is a TODO). For now, push it manually from a terminal on your admin Mac:\n\nscp -P <port> -o ProxyCommand=\"ssh -p 3122 -i ~/.ssh/bluesky_admin admin@bluesky.macfaqulty.com /bin/nc %h %p\" \"$(path-to)/BlueConnect Admin.app/Contents/Resources/blueconnect-chat\" ladmin@localhost:/tmp/\n\nthen ssh in and: sudo install -m 755 -o root -g wheel /tmp/blueconnect-chat /usr/local/bin/blueconnect-chat"
+                // Install GUI Helper's run path SCP-stages the bundled
+                // chat binary to /tmp/blueconnect-chat before the
+                // install script runs (ContentView intercept on
+                // setupGuiHelper), so firing the install also pushes
+                // the chat binary into place. No manual scp needed.
+                msg = "Chat binary isn't installed on \(host.displayName) yet. Install the GUI Helper - it pushes the chat binary as part of setup."
             case let s where s.hasPrefix("MACOS_TOO_OLD:"):
                 let ver = s.dropFirst("MACOS_TOO_OLD:".count)
                 msg = "Chat requires macOS 14+. \(host.displayName) is on macOS \(ver) — upgrade the host or skip chat for this one."
@@ -208,16 +213,19 @@ final class ChatService: ObservableObject, Identifiable {
                     msg = "Unable to prepare \(host.displayName) for chat (\(probe.stderr.prefix(200))). Reinstall the GUI Helper."
                 }
             }
-            // Only the three "helper-fixable" cases get the inline
-            // install button. The SSH-auth-fail and macOS-too-old
-            // cases can't be resolved by running the install, and
-            // MISSING_CHAT_BINARY needs a manual scp the operator
-            // has to do from a terminal.
+            // The four "helper-fixable" cases get the inline install
+            // button. MISSING_CHAT_BINARY is in this set because the
+            // install Quick Action's run path in ContentView SCPs the
+            // bundled chat binary to /tmp/blueconnect-chat *before*
+            // the install script runs, so the install also stages the
+            // chat binary into place. SSH-auth-fail and macOS-too-old
+            // can't be resolved by re-running the install.
             let canFixWithInstall: Bool = {
                 switch out {
                 case "MISSING_HELPER",
                      "HELPER_NOT_RUNNING",
-                     "MISSING_CHAT_DIR":
+                     "MISSING_CHAT_DIR",
+                     "MISSING_CHAT_BINARY":
                     return true
                 default:
                     return false
