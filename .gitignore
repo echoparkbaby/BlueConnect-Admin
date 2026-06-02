@@ -17,3 +17,6 @@ CLAUDE.md
 
 # Helper pkg build artifact (signed/notarized .pkg uploaded to Munki)
 BlueConnectHelper.pkg
+
+# Stray cert extractions from `codesign -d --extract-certificates`.
+codesign[0-9]*
