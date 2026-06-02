@@ -27,6 +27,7 @@ struct QuickActionsBrowserWindow: View {
     @Environment(QuickActionLauncher.self) private var launcher
     @Environment(\.dismissWindow) private var dismissWindow
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.openSettings) private var openSettings
 
     @State private var selectedActionID: String?
     @State private var selectedHostID: Int?
@@ -42,6 +43,8 @@ struct QuickActionsBrowserWindow: View {
             } detail: {
                 detail
             }
+            Divider()
+            footerBar
         }
         .frame(minWidth: 840, minHeight: 540)
         .onAppear { primeDefaultSelection() }
@@ -288,6 +291,48 @@ struct QuickActionsBrowserWindow: View {
         pb.clearContents()
         pb.setString(command, forType: .string)
     }
+
+    // MARK: - Footer
+
+    private var footerBar: some View {
+        HStack {
+            Button {
+                jumpToCustomActions()
+            } label: {
+                Label("Add Custom Action…", systemImage: "plus.circle")
+            }
+            Text("Opens Settings → Quick Actions, scrolled to Custom actions.")
+                .font(.caption).foregroundStyle(.secondary)
+            Spacer()
+        }
+        .padding(.horizontal, 16).padding(.vertical, 10)
+    }
+
+    /// Seeds the AppStorage that the Settings sidebar reads on appear,
+    /// posts a one-shot "scroll to custom actions" notification, then
+    /// opens Settings. The pane's ScrollViewReader catches the
+    /// notification and scrolls. Pattern mirrors the Terminal Profile
+    /// picker's "Customize…" button (settingsSelection AppStorage
+    /// seeded before openSettings).
+    private func jumpToCustomActions() {
+        UserDefaults.standard.set("quickActions", forKey: "settingsSelection")
+        openSettings()
+        // Defer one runloop turn so the Settings window is mounted +
+        // the pane's body has fired before the notification arrives.
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(
+                name: .bcScrollSettingsToCustomActions, object: nil
+            )
+        }
+    }
+}
+
+extension Notification.Name {
+    /// Posted by the Browse Quick Actions window's "Add Custom Action…"
+    /// button. QuickActionsSettingsPane listens for it and scrolls to
+    /// the Custom actions section.
+    static let bcScrollSettingsToCustomActions =
+        Notification.Name("BC.ScrollSettingsToCustomActions")
 }
 
 // MARK: - Sidebar row

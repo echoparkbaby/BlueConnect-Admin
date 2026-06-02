@@ -17,12 +17,20 @@ struct QuickActionsSettingsPane: View {
     @State private var editingAction: CustomQuickAction?
 
     var body: some View {
-        Form {
-            recentsSection
-            builtInsSection
-            customSection
+        ScrollViewReader { proxy in
+            Form {
+                recentsSection
+                builtInsSection
+                customSection
+                    .id("customActionsAnchor")
+            }
+            .formStyle(.grouped)
+            .onReceive(NotificationCenter.default.publisher(for: .bcScrollSettingsToCustomActions)) { _ in
+                withAnimation(.easeOut(duration: 0.25)) {
+                    proxy.scrollTo("customActionsAnchor", anchor: .top)
+                }
+            }
         }
-        .formStyle(.grouped)
         .sheet(isPresented: $showingAddSheet) {
             CustomQuickActionEditor(existing: nil) { draft in
                 quickActions.addCustom(draft)
@@ -214,6 +222,7 @@ struct CustomQuickActionEditor: View {
     @State private var command: String = ""
     @State private var isDestructive: Bool = false
     @State private var help: String = ""
+    @State private var showingIconPicker: Bool = false
 
     private var isEditing: Bool { existing != nil }
 
@@ -268,9 +277,29 @@ struct CustomQuickActionEditor: View {
             TextField("Category", text: $category,
                       prompt: Text(verbatim: "Custom"))
                 .help("Menus group actions by category. Use \"Custom\" or invent your own — \"Audits\", \"One-offs\", etc.")
-            TextField("SF Symbol icon", text: $icon,
-                      prompt: Text(verbatim: "wand.and.stars"))
-                .help("Any SF Symbol name. Examples: terminal, wand.and.stars, hammer, sparkles, bolt.fill")
+            HStack {
+                Text("Icon")
+                Spacer()
+                Button {
+                    showingIconPicker.toggle()
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: icon.isEmpty ? "questionmark.square" : icon)
+                            .frame(width: 18)
+                        Text(icon.isEmpty ? "Pick icon…" : icon)
+                            .font(.callout.monospaced())
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal, 8).padding(.vertical, 4)
+                }
+                .buttonStyle(.bordered)
+                .popover(isPresented: $showingIconPicker, arrowEdge: .bottom) {
+                    SFSymbolGridPicker(selected: $icon) {
+                        showingIconPicker = false
+                    }
+                }
+            }
+            .help("Click to pick from a curated SF Symbol grid.")
             TextField("Help text (optional)", text: $help,
                       prompt: Text(verbatim: "Flushes mDNSResponder cache"))
             Toggle("Destructive — show confirmation banner in the sheet",
@@ -317,5 +346,119 @@ struct CustomQuickActionEditor: View {
             .disabled(!canSave)
         }
         .padding(.horizontal, 16).padding(.vertical, 10)
+    }
+}
+
+/// Popover grid for picking an SF Symbol for a custom Quick Action.
+/// Curated list of admin-relevant symbols — about 80 entries grouped
+/// loosely by purpose. A typed search field at the top filters live.
+/// Picking a cell writes the symbol name to the bound state and calls
+/// `onPick` (which closes the popover).
+struct SFSymbolGridPicker: View {
+    @Binding var selected: String
+    let onPick: () -> Void
+    @State private var query: String = ""
+
+    private let symbols: [String] = [
+        // Generic / "do something special"
+        "wand.and.stars", "wand.and.rays", "sparkles", "bolt.fill", "bolt.circle.fill",
+        "hammer", "hammer.fill", "wrench", "wrench.and.screwdriver", "screwdriver",
+        // Terminal / shell
+        "terminal", "terminal.fill", "chevron.left.forwardslash.chevron.right",
+        "curlybraces", "command", "keyboard",
+        // System
+        "gear", "gearshape", "gearshape.fill", "gearshape.2", "switch.2",
+        "power", "power.circle.fill", "arrow.clockwise", "arrow.clockwise.circle.fill",
+        "arrow.triangle.2.circlepath",
+        // Identity / users
+        "person", "person.fill", "person.crop.circle", "person.crop.circle.badge.checkmark",
+        "person.2", "person.2.fill", "person.badge.minus", "person.badge.plus",
+        // Security
+        "lock", "lock.fill", "lock.shield", "lock.shield.fill", "key", "key.fill",
+        "checkmark.shield", "checkmark.shield.fill", "exclamationmark.shield",
+        // Disk
+        "internaldrive", "externaldrive", "externaldrive.fill",
+        "opticaldiscdrive", "memorychip",
+        // CPU / system load
+        "cpu", "cpu.fill", "gauge", "speedometer", "thermometer",
+        // Network
+        "network", "wifi", "wifi.slash", "antenna.radiowaves.left.and.right",
+        "globe", "globe.americas",
+        // Communication
+        "bell", "bell.fill", "envelope", "envelope.fill", "message",
+        // Status
+        "checkmark.circle", "checkmark.circle.fill", "xmark.circle", "xmark.circle.fill",
+        "exclamationmark.triangle", "exclamationmark.triangle.fill",
+        "info.circle", "info.circle.fill", "questionmark.circle",
+        // Cleanup / data
+        "trash", "trash.fill", "doc", "doc.text", "doc.text.fill",
+        "doc.text.below.ecg", "list.bullet.rectangle", "tray",
+        // Apps / packages
+        "app.fill", "shippingbox", "shippingbox.fill", "cube.box", "cube.box.fill",
+        // Time
+        "clock", "clock.fill", "clock.arrow.circlepath", "calendar",
+        // UI
+        "eye", "eye.slash", "magnifyingglass", "scroll", "dock.rectangle",
+    ]
+
+    private var filtered: [String] {
+        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
+        if q.isEmpty { return symbols }
+        return symbols.filter { $0.lowercased().contains(q) }
+    }
+
+    private let columns = Array(repeating: GridItem(.fixed(34), spacing: 4), count: 8)
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary).font(.caption)
+                TextField("Filter", text: $query)
+                    .textFieldStyle(.plain)
+                    .font(.callout)
+                if !query.isEmpty {
+                    Button { query = "" } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 10).padding(.vertical, 8)
+            Divider()
+            ScrollView {
+                LazyVGrid(columns: columns, spacing: 4) {
+                    ForEach(filtered, id: \.self) { name in
+                        Button {
+                            selected = name
+                            onPick()
+                        } label: {
+                            Image(systemName: name)
+                                .font(.system(size: 18))
+                                .frame(width: 34, height: 34)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 5)
+                                        .fill(name == selected
+                                              ? Color.accentColor.opacity(0.25)
+                                              : Color.clear)
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 5)
+                                        .stroke(name == selected
+                                                ? Color.accentColor
+                                                : Color.clear, lineWidth: 1.5)
+                                )
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .help(name)
+                    }
+                }
+                .padding(8)
+            }
+            .frame(height: 220)
+        }
+        .frame(width: 320)
     }
 }
