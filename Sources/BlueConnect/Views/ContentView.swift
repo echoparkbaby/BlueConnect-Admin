@@ -1339,7 +1339,16 @@ struct ContentView: View {
         // still run the install — helper + Large Type + Notify User
         // work without the chat binary, just no chat on this host
         // until the operator pushes it manually.
-        if action.id == "setupGuiHelper",
+        // GUI Helper action is now mode-pickered (install / uninstall) on
+        // a single QuickAction id. Only the install branch needs the
+        // chat binary staged at /tmp; the uninstall command just rm's
+        // /usr/local/bin/blueconnect-chat so an SCP push beforehand
+        // would be wasted bytes. Detect install mode by the unique
+        // install-only substring in the resolved command.
+        let isHelperInstall =
+            action.id == "setupGuiHelper" &&
+            command.contains("/usr/local/bin/blueconnect-gui-helper")
+        if isHelperInstall,
            let chatURL = Bundle.main.url(forResource: "blueconnect-chat", withExtension: nil) {
             Task { @MainActor in
                 let (status, stderr) = await svc.pushFileViaSCP(

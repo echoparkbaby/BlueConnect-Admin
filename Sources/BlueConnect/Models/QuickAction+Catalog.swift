@@ -1059,9 +1059,15 @@ extension QuickAction {
         // the agent. Safe to re-run after macOS upgrades.
         QuickAction(
             id: "setupGuiHelper",
-            label: "Install GUI Helper",
-            category: .miscellaneous, icon: "wand.and.rays",
-            fields: [],
+            label: "GUI Helper",
+            category: .fleet, icon: "wand.and.rays",
+            fields: [
+                .init(id: "mode", label: "Mode",
+                      placeholder: "", kind: .picker([
+                        .init(label: "Install / reinstall (idempotent)", value: "install"),
+                        .init(label: "Uninstall (remove everything)",    value: "uninstall"),
+                      ]), defaultValue: "install"),
+            ],
             tabLabel: "setup-gui-helper", isDestructive: true,
             help: """
             **ONE-TIME per Mac.** Installs a LaunchAgent that lets BlueConnect display chat and fullscreen notifications in the logged-in user's session without granting standing root.
@@ -1086,11 +1092,42 @@ extension QuickAction {
             2. Paste the command below into Terminal on the target Mac.
             """,
             copyableCommand: "sudo launchctl bootout gui/$(id -u $(stat -f%Su /dev/console)) /Library/LaunchAgents/xyz.hellocomputer.blueconnect-helper.plist && sudo rm /Library/LaunchAgents/xyz.hellocomputer.blueconnect-helper.plist /usr/local/bin/blueconnect-gui-helper /usr/local/bin/blueconnect-chat && sudo rm -rf '/Library/Application Support/BlueConnect'",
-            buildCommand: { _ in
-                // The helper script + LaunchAgent plist are base64-
-                // encoded at build time so we don't have to fight
-                // shell heredoc / quoting / indentation when emitting
-                // them as part of a single SSH command line.
+            buildCommand: { v in
+                let mode = v["mode"] ?? "install"
+                if mode == "uninstall" {
+                    // Single SSH-friendly line so the BSC tunnel
+                    // doesn't need multi-line shell. `|| true` on
+                    // each step so partial installs (only some
+                    // files present) still complete.
+                    return #"""
+                    set -e; \
+                    echo "▶ priming sudo (will prompt for password if not cached)…"; \
+                    sudo -v; \
+                    PLIST="/Library/LaunchAgents/xyz.hellocomputer.blueconnect-helper.plist"; \
+                    if [ -f "$PLIST" ]; then \
+                      echo "▶ booting LaunchAgent out of every active Aqua session…"; \
+                      for u in $(/usr/bin/who | /usr/bin/awk '{print $1}' | /usr/bin/sort -u); do \
+                        [ "$u" = "root" ] && continue; \
+                        uid=$(id -u "$u" 2>/dev/null) || continue; \
+                        [ -z "$uid" ] && continue; \
+                        sudo launchctl bootout "gui/$uid" "$PLIST" 2>/dev/null || true; \
+                      done; \
+                    else \
+                      echo "▶ no LaunchAgent plist found — skipping bootout"; \
+                    fi; \
+                    echo "▶ removing files (/usr/local/bin/blueconnect-{gui-helper,chat}, LaunchAgent plist, app-support dir)…"; \
+                    sudo rm -f "$PLIST"; \
+                    sudo rm -f /usr/local/bin/blueconnect-gui-helper; \
+                    sudo rm -f /usr/local/bin/blueconnect-chat; \
+                    sudo rm -rf "/Library/Application Support/BlueConnect"; \
+                    echo "✅ GUI helper uninstalled from $(hostname)."
+                    """#
+                }
+                // Install path. The helper script + LaunchAgent
+                // plist are base64-encoded at build time so we
+                // don't have to fight shell heredoc / quoting /
+                // indentation when emitting them as part of a
+                // single SSH command line.
                 let helperScript = """
                 #!/bin/bash
                 # blueconnect-gui-helper — runs in the Aqua session of
@@ -1253,64 +1290,6 @@ extension QuickAction {
                 else \
                   echo "✅ GUI helper installed on $(hostname). No active GUI sessions found — will auto-load on next login."; \
                 fi
-                """#
-            }
-        ),
-
-        // Setup: Uninstall — the inverse of setupGuiHelper. Removes
-        // the LaunchAgent (booting it out of every active Aqua
-        // session first), the helper script, the chat client, and
-        // the world-writable inbox + chat session dirs. Idempotent —
-        // running it on a Mac that doesn't have the helper just
-        // succeeds with no-ops. Pair this with the per-host install
-        // path for ad-hoc cleanup; for Munki-deployed installs the
-        // uninstall path is "remove from manifest" instead.
-        QuickAction(
-            id: "uninstallGuiHelper",
-            label: "Uninstall GUI Helper",
-            category: .miscellaneous, icon: "trash",
-            fields: [],
-            tabLabel: "uninstall-gui-helper", isDestructive: true,
-            help: """
-            Removes the GUI Helper from this Mac — undoes **Setup: Install GUI Helper**. Large Type, Notify User, and Chat will stop working on this Mac until the helper is reinstalled.
-
-            **What gets removed:**
-
-            - `/usr/local/bin/blueconnect-gui-helper` — worker script
-            - `/usr/local/bin/blueconnect-chat` — chat client
-            - `/Library/LaunchAgents/xyz.hellocomputer.blueconnect-helper.plist` — LaunchAgent (booted out first)
-            - `/Library/Application Support/BlueConnect/` — inbox + chat sessions (full directory)
-
-            Safe to run on a Mac that doesn't have the helper installed — every step is idempotent. For Munki-deployed installs, prefer removing the pkg from the manifest so Munki manages the uninstall instead.
-            """,
-            buildCommand: { _ in
-                // Single SSH-friendly line so the BSC tunnel doesn't
-                // need to handle multi-line shell. `|| true` on each
-                // step so partial installs (only some files present)
-                // still complete instead of failing on the first
-                // missing path.
-                #"""
-                set -e; \
-                echo "▶ priming sudo (will prompt for password if not cached)…"; \
-                sudo -v; \
-                PLIST="/Library/LaunchAgents/xyz.hellocomputer.blueconnect-helper.plist"; \
-                if [ -f "$PLIST" ]; then \
-                  echo "▶ booting LaunchAgent out of every active Aqua session…"; \
-                  for u in $(/usr/bin/who | /usr/bin/awk '{print $1}' | /usr/bin/sort -u); do \
-                    [ "$u" = "root" ] && continue; \
-                    uid=$(id -u "$u" 2>/dev/null) || continue; \
-                    [ -z "$uid" ] && continue; \
-                    sudo launchctl bootout "gui/$uid" "$PLIST" 2>/dev/null || true; \
-                  done; \
-                else \
-                  echo "▶ no LaunchAgent plist found — skipping bootout"; \
-                fi; \
-                echo "▶ removing files (/usr/local/bin/blueconnect-{gui-helper,chat}, LaunchAgent plist, app-support dir)…"; \
-                sudo rm -f "$PLIST"; \
-                sudo rm -f /usr/local/bin/blueconnect-gui-helper; \
-                sudo rm -f /usr/local/bin/blueconnect-chat; \
-                sudo rm -rf "/Library/Application Support/BlueConnect"; \
-                echo "✅ GUI helper uninstalled from $(hostname)."
                 """#
             }
         ),
