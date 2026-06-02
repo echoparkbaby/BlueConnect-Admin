@@ -33,6 +33,12 @@ final class ChatService: ObservableObject, Identifiable {
         /// text so the operator can fire the install without leaving
         /// the chat window to navigate the right-click menu.
         var showInstallHelperButton: Bool = false
+        /// When true, the bubble renders a "Retry connection" button
+        /// that re-runs the chat-start probe. Used after firing the
+        /// install button — once the install finishes in the bottom-
+        /// pane terminal, the operator taps Retry and the probe
+        /// passes without forcing them to close and reopen the chat.
+        var showRetryButton: Bool = false
     }
 
     let sessionID: String
@@ -490,16 +496,38 @@ final class ChatService: ObservableObject, Identifiable {
         launcher.pendingRun = QuickActionLauncher.PendingRun(
             host: host, action: action, command: command
         )
-        appendSystem("Running GUI Helper install on \(host.displayName)... watch the terminal tab in the bottom pane.")
+        appendSystem(
+            "Installing GUI Helper on \(host.displayName) - watch the bottom-pane terminal. When you see the ✅ line, tap Retry below to reconnect.",
+            showRetryButton: true
+        )
     }
 
-    private func appendSystem(_ text: String, showInstallHelperButton: Bool = false) {
+    /// Re-fire the chat-start probe. Called from the inline "Retry"
+    /// button in the post-install system bubble; resets `messages` to
+    /// just the system trace and runs `start()` again so the operator
+    /// stays in the same chat window instead of having to close +
+    /// reopen.
+    func retryConnection() {
+        // Drop the prior probe-failure trail before re-running so the
+        // operator doesn't end up looking at three stacked error
+        // bubbles. Keep `messages.count == 0` going into start() so
+        // its first "Connecting to…" bubble lands at the top.
+        messages.removeAll()
+        statusText = "Connecting"
+        isStarted = false
+        Task { await start() }
+    }
+
+    private func appendSystem(_ text: String,
+                              showInstallHelperButton: Bool = false,
+                              showRetryButton: Bool = false) {
         messages.append(Message(
             id: "sys/\(Date().timeIntervalSince1970)",
             author: .system,
             text: text,
             timestamp: Date(),
-            showInstallHelperButton: showInstallHelperButton
+            showInstallHelperButton: showInstallHelperButton,
+            showRetryButton: showRetryButton
         ))
     }
 

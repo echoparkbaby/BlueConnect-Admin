@@ -127,15 +127,29 @@ struct ChatWindow: View {
                         .padding(.horizontal, 10).padding(.vertical, 4)
                         .background(Color.secondary.opacity(0.08))
                         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    if msg.showInstallHelperButton {
-                        Button {
-                            chat.installGuiHelper()
-                        } label: {
-                            Label("Install GUI Helper", systemImage: "wand.and.rays")
-                                .font(.caption)
+                    if msg.showInstallHelperButton || msg.showRetryButton {
+                        HStack(spacing: 8) {
+                            if msg.showInstallHelperButton {
+                                Button {
+                                    chat.installGuiHelper()
+                                } label: {
+                                    Label("Install GUI Helper", systemImage: "wand.and.rays")
+                                        .font(.caption)
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .controlSize(.small)
+                            }
+                            if msg.showRetryButton {
+                                Button {
+                                    chat.retryConnection()
+                                } label: {
+                                    Label("Retry", systemImage: "arrow.clockwise")
+                                        .font(.caption)
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .controlSize(.small)
+                            }
                         }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
                     }
                 }
                 Spacer()
