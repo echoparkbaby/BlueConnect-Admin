@@ -1064,8 +1064,8 @@ extension QuickAction {
             fields: [
                 .init(id: "mode", label: "Mode",
                       placeholder: "", kind: .picker([
-                        .init(label: "Install / reinstall (idempotent)", value: "install"),
-                        .init(label: "Uninstall (remove everything)",    value: "uninstall"),
+                        .init(label: "Install/Reinstall", value: "install"),
+                        .init(label: "Uninstall",         value: "uninstall"),
                       ]), defaultValue: "install"),
             ],
             tabLabel: "setup-gui-helper", isDestructive: true,
