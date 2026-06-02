@@ -216,6 +216,11 @@ struct ChatRoot: View {
                         : Color.white
                     )
                     .clipShape(RoundedRectangle(cornerRadius: 14))
+                    // Let the user drag-select the message text or
+                    // hit ⌘C — useful when the admin sends a URL,
+                    // a serial number, or a long instruction the
+                    // user needs to paste somewhere.
+                    .textSelection(.enabled)
                 Text(msg.timestamp, format: .dateTime.hour().minute())
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
@@ -283,6 +288,16 @@ let app = NSApplication.shared
 let delegate = ChatAppDelegate(session: session, title: chatTitle)
 app.delegate = delegate
 app.setActivationPolicy(.regular)
+// NSApp.activate(ignoringOtherApps:) was unreliable when a
+// LaunchAgent spawned us (helper → nohup blueconnect-chat) - macOS
+// often dropped the activation request because no user gesture
+// preceded it. NSRunningApplication.current.activate(...) goes
+// through a different path that respects "I'm launching now"
+// semantics and lands the window on top of whatever the user is
+// currently in (including fullscreen apps, given the window's
+// .canJoinAllSpaces collection behavior set in
+// applicationDidFinishLaunching).
+NSRunningApplication.current.activate(options: [.activateIgnoringOtherApps])
 app.activate(ignoringOtherApps: true)
 app.run()
 
