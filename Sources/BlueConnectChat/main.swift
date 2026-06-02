@@ -361,11 +361,18 @@ final class ChatAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     /// Build a minimal menu bar. macOS doesn't auto-create one for
     /// LSUIElement-style processes; without an explicit menu the
-    /// Edit/Select-All shortcut (⌘A) has no responder to land on.
-    /// Adds an Edit menu with Select All (⌘A) wired to copyAllToPasteboard
-    /// on the session so the operator can grab the full transcript even
-    /// across multiple SwiftUI Text bubbles (which don't support a
-    /// single drag-select).
+    /// standard Edit shortcuts (⌘A, ⌘C, ⌘V, ⌘X) have no responder to
+    /// land on inside the input TextField.
+    ///
+    /// Items use the standard NSResponder selectors so they route to
+    /// whichever control currently has focus. ⌘A in particular: when
+    /// focus is in the input TextField, the field selects all text the
+    /// operator typed (the expected behaviour). When the chat is the
+    /// key window but nothing focusable owns the responder chain, the
+    /// menu item is just disabled.
+    ///
+    /// "Copy All Messages" is a custom item bound to ⌘⇧A so it doesn't
+    /// collide with the standard ⌘A select-all.
     private func installMenu() {
         let main = NSMenu()
         // App menu (Quit)
@@ -376,12 +383,48 @@ final class ChatAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                        action: #selector(NSApplication.terminate(_:)),
                        keyEquivalent: "q")
         )
-        // Edit menu (Select All + Copy)
+        // Edit menu - standard text editing items + the custom
+        // Copy-All-Messages bound to ⌘⇧A.
         let edit = NSMenuItem()
         edit.submenu = NSMenu(title: "Edit")
+        edit.submenu?.addItem(
+            NSMenuItem(title: "Undo",
+                       action: Selector(("undo:")),
+                       keyEquivalent: "z")
+        )
+        edit.submenu?.addItem({
+            let m = NSMenuItem(title: "Redo",
+                               action: Selector(("redo:")),
+                               keyEquivalent: "z")
+            m.keyEquivalentModifierMask = [.command, .shift]
+            return m
+        }())
+        edit.submenu?.addItem(NSMenuItem.separator())
+        edit.submenu?.addItem(
+            NSMenuItem(title: "Cut",
+                       action: #selector(NSText.cut(_:)),
+                       keyEquivalent: "x")
+        )
+        edit.submenu?.addItem(
+            NSMenuItem(title: "Copy",
+                       action: #selector(NSText.copy(_:)),
+                       keyEquivalent: "c")
+        )
+        edit.submenu?.addItem(
+            NSMenuItem(title: "Paste",
+                       action: #selector(NSText.paste(_:)),
+                       keyEquivalent: "v")
+        )
+        edit.submenu?.addItem(
+            NSMenuItem(title: "Select All",
+                       action: #selector(NSResponder.selectAll(_:)),
+                       keyEquivalent: "a")
+        )
+        edit.submenu?.addItem(NSMenuItem.separator())
         let copyAll = NSMenuItem(title: "Copy All Messages",
                                  action: #selector(copyAllMessages),
                                  keyEquivalent: "a")
+        copyAll.keyEquivalentModifierMask = [.command, .shift]
         copyAll.target = self
         edit.submenu?.addItem(copyAll)
         main.addItem(appItem)
