@@ -211,7 +211,13 @@ struct ChatWindow: View {
         HStack(spacing: 8) {
             TextField("Type a message…", text: $chat.inputDraft, axis: .vertical)
                 .textFieldStyle(.roundedBorder)
-                .lineLimit(1...4)
+                // Grow up to 12 lines as the operator types, then
+                // scroll. 4 lines (the previous cap) hid the bottom of
+                // most multi-paragraph instructions and made the
+                // operator commit blind. 12 covers a long explanatory
+                // message without dominating the chat window's
+                // vertical real estate.
+                .lineLimit(1...12)
                 .focused($inputFocused)
                 .onSubmit { Task { await chat.send() } }
                 .disabled(!chat.isStarted)

@@ -242,7 +242,10 @@ struct ChatRoot: View {
             HStack(spacing: 8) {
                 TextField("Type a reply…", text: $session.inputDraft, axis: .vertical)
                     .textFieldStyle(.roundedBorder)
-                    .lineLimit(1...4)
+                    // Mirror the admin-side cap (ChatWindow.swift).
+                    // 12 lines fits a long reply without burying the
+                    // transcript above.
+                    .lineLimit(1...12)
                     .focused($inputFocused)
                     .onSubmit { session.send() }
                 Button("Send") { session.send() }
