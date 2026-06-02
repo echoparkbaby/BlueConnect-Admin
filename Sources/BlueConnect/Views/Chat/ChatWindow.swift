@@ -119,12 +119,25 @@ struct ChatWindow: View {
         if msg.author == .system {
             HStack {
                 Spacer()
-                Text(msg.text)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 10).padding(.vertical, 4)
-                    .background(Color.secondary.opacity(0.08))
-                    .clipShape(Capsule())
+                VStack(spacing: 6) {
+                    Text(msg.text)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 10).padding(.vertical, 4)
+                        .background(Color.secondary.opacity(0.08))
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    if msg.showInstallHelperButton {
+                        Button {
+                            chat.installGuiHelper()
+                        } label: {
+                            Label("Install GUI Helper", systemImage: "wand.and.rays")
+                                .font(.caption)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                    }
+                }
                 Spacer()
             }
         } else {

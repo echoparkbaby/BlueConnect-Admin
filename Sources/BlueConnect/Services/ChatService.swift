@@ -28,11 +28,21 @@ final class ChatService: ObservableObject, Identifiable {
         let author: Author
         let text: String
         let timestamp: Date
+        /// When true (only ever set on `.system` messages), the bubble
+        /// renders an inline "Install GUI Helper…" button next to the
+        /// text so the operator can fire the install without leaving
+        /// the chat window to navigate the right-click menu.
+        var showInstallHelperButton: Bool = false
     }
 
     let sessionID: String
     let host: BlueSkyHost
     private let settings: SettingsStore
+    /// Optional QuickActionLauncher reference so the chat sheet's
+    /// "Install GUI Helper…" button can fire the same Quick Action the
+    /// right-click menu invokes. nil-tolerant: when the launcher isn't
+    /// supplied (older call sites), the install button is hidden.
+    private let launcher: QuickActionLauncher?
     /// Stable title shown in both windows. Defaults to "Tech Support";
     /// override at session creation time if the admin wants something
     /// less stuffy ("Quick Question", their own name, etc.).
@@ -83,9 +93,14 @@ final class ChatService: ObservableObject, Identifiable {
         }
     }
 
-    init(host: BlueSkyHost, settings: SettingsStore, title: String? = nil, targetUser: String = "") {
+    init(host: BlueSkyHost,
+         settings: SettingsStore,
+         title: String? = nil,
+         targetUser: String = "",
+         launcher: QuickActionLauncher? = nil) {
         self.host = host
         self.settings = settings
+        self.launcher = launcher
         self.targetUser = targetUser
         // Reuse the stored session UUID if any — that's what makes
         // closing the chat and reopening show the previous transcript
@@ -166,11 +181,11 @@ final class ChatService: ObservableObject, Identifiable {
             let msg: String
             switch out {
             case "MISSING_HELPER":
-                msg = "GUI Helper not installed on \(host.displayName). Right-click the host → Quick Actions → Miscellaneous → \"Setup: Install GUI Helper\" and try again."
+                msg = "GUI Helper isn't installed on \(host.displayName)."
             case "HELPER_NOT_RUNNING":
-                msg = "GUI Helper on \(host.displayName) isn't running. Re-run \"Setup: Install GUI Helper\" or have the user log out and back in."
+                msg = "GUI Helper on \(host.displayName) isn't running. Reinstall it (button below) or have the user log out and back in."
             case "MISSING_CHAT_DIR":
-                msg = "The chat directory hasn't been set up on \(host.displayName) (likely installed before the chat feature shipped). Re-run \"Setup: Install GUI Helper\" on this Mac — it's idempotent and will add the missing /chat folder."
+                msg = "The chat directory hasn't been set up on \(host.displayName) — likely installed before the chat feature shipped. Reinstall the GUI Helper to add the missing /chat folder."
             case "MISSING_CHAT_BINARY":
                 msg = "/usr/local/bin/blueconnect-chat is missing on \(host.displayName). The chat binary install is currently a separate step from the GUI Helper setup (in-app installer is a TODO). For now, push it manually from a terminal on your admin Mac:\n\nscp -P <port> -o ProxyCommand=\"ssh -p 3122 -i ~/.ssh/bluesky_admin admin@bluesky.macfaqulty.com /bin/nc %h %p\" \"$(path-to)/BlueConnect Admin.app/Contents/Resources/blueconnect-chat\" ladmin@localhost:/tmp/\n\nthen ssh in and: sudo install -m 755 -o root -g wheel /tmp/blueconnect-chat /usr/local/bin/blueconnect-chat"
             case let s where s.hasPrefix("MACOS_TOO_OLD:"):
@@ -184,10 +199,25 @@ final class ChatService: ObservableObject, Identifiable {
                 if probe.stderr.localizedCaseInsensitiveContains("permission denied") {
                     msg = "Can't SSH into \(host.displayName) as ladmin — the bluesky_admin pubkey isn't authorized on the host. Append `~/.ssh/bluesky_admin.pub` to `/Users/ladmin/.ssh/authorized_keys` on \(host.displayName)."
                 } else {
-                    msg = "Unable to prepare \(host.displayName) for chat (\(probe.stderr.prefix(200))). Re-run \"Setup: Install GUI Helper\"."
+                    msg = "Unable to prepare \(host.displayName) for chat (\(probe.stderr.prefix(200))). Reinstall the GUI Helper."
                 }
             }
-            appendSystem(msg)
+            // Only the three "helper-fixable" cases get the inline
+            // install button. The SSH-auth-fail and macOS-too-old
+            // cases can't be resolved by running the install, and
+            // MISSING_CHAT_BINARY needs a manual scp the operator
+            // has to do from a terminal.
+            let canFixWithInstall: Bool = {
+                switch out {
+                case "MISSING_HELPER",
+                     "HELPER_NOT_RUNNING",
+                     "MISSING_CHAT_DIR":
+                    return true
+                default:
+                    return false
+                }
+            }()
+            appendSystem(msg, showInstallHelperButton: canFixWithInstall && launcher != nil)
             statusText = "Setup needed"
             return
         }
@@ -442,12 +472,34 @@ final class ChatService: ObservableObject, Identifiable {
 
     // MARK: - Helpers
 
-    private func appendSystem(_ text: String) {
+    /// Fire the "GUI Helper" Quick Action against this chat's host in
+    /// Install mode. Bound to the inline button in a system bubble when
+    /// `showInstallHelperButton` is set. Routes through the same
+    /// `QuickActionLauncher.pendingRun` channel the Browse Quick Actions
+    /// window uses, so ContentView's existing onChange handler dispatches
+    /// it through the unmodified runQuickAction path - output lands in a
+    /// terminal tab and the operator sees the install steps live.
+    func installGuiHelper() {
+        guard let launcher else { return }
+        guard let action = QuickAction.all.first(where: { $0.id == "setupGuiHelper" }) else {
+            appendSystem("Couldn't find the GUI Helper Quick Action - this build's catalog may be out of sync.")
+            return
+        }
+        let values: [String: String] = ["mode": "install"]
+        let command = action.buildCommand(values)
+        launcher.pendingRun = QuickActionLauncher.PendingRun(
+            host: host, action: action, command: command
+        )
+        appendSystem("Running GUI Helper install on \(host.displayName)... watch the terminal tab in the bottom pane.")
+    }
+
+    private func appendSystem(_ text: String, showInstallHelperButton: Bool = false) {
         messages.append(Message(
             id: "sys/\(Date().timeIntervalSince1970)",
             author: .system,
             text: text,
-            timestamp: Date()
+            timestamp: Date(),
+            showInstallHelperButton: showInstallHelperButton
         ))
     }
 
