@@ -1255,6 +1255,8 @@ extension QuickAction {
                 set -e; \
                 echo "▶ priming sudo (will prompt for password if not cached)…"; \
                 sudo -v; \
+                echo "▶ ensuring /usr/local/bin exists (fresh macOS installs don't ship with it)…"; \
+                sudo mkdir -p /usr/local/bin; \
                 echo "▶ creating /Library/Application Support/BlueConnect/{inbox,chat,chat/sessions} (0777)…"; \
                 sudo mkdir -p "/Library/Application Support/BlueConnect/inbox"; \
                 sudo chmod 0777 "/Library/Application Support/BlueConnect/inbox"; \
