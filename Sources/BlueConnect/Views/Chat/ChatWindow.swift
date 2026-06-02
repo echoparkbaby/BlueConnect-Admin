@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 /// Scene wrapper around `ChatWindow`. Reads the active `ChatService`
 /// from `ChatSessionController` so the standalone window can be
@@ -10,22 +11,47 @@ struct ChatWindowScene: View {
     @Environment(\.dismissWindow) private var dismissWindow
 
     var body: some View {
-        if let session = controller.currentSession {
-            ChatWindow(chat: session)
-                .id(controller.openCounter) // re-mount on new session
-        } else {
-            VStack {
-                Image(systemName: "bubble.left.and.bubble.right")
-                    .font(.system(size: 40))
-                    .foregroundStyle(.secondary)
-                    .padding(.bottom, 8)
-                Text("No active chat")
-                    .font(.headline)
-                Text("Right-click a host → Open Chat… to start one.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+        Group {
+            if let session = controller.currentSession {
+                ChatWindow(chat: session)
+                    .id(controller.openCounter) // re-mount on new session
+            } else {
+                VStack {
+                    Image(systemName: "bubble.left.and.bubble.right")
+                        .font(.system(size: 40))
+                        .foregroundStyle(.secondary)
+                        .padding(.bottom, 8)
+                    Text("No active chat")
+                        .font(.headline)
+                    Text("Right-click a host → Open Chat… to start one.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(width: 320, height: 240)
             }
-            .frame(width: 320, height: 240)
+        }
+        .onAppear { pinChatWindowToFloating() }
+        .onChange(of: controller.openCounter) { _, _ in
+            // Re-pin on every present() in case the host window
+            // briefly demoted itself during the session switch.
+            pinChatWindowToFloating()
+        }
+    }
+
+    /// Find the chat window by SwiftUI scene title and raise its level
+    /// to `.floating`. Keeps the chat above every other normal window
+    /// so the admin never loses sight of an in-flight conversation
+    /// when they click into a Terminal tab, the host list, or any
+    /// other window. Defer one runloop tick so SwiftUI has actually
+    /// mounted the NSWindow.
+    private func pinChatWindowToFloating() {
+        DispatchQueue.main.async {
+            if let w = NSApp.windows.first(where: {
+                $0.identifier?.rawValue == "blueconnect-chat" || $0.title == "Chat"
+            }) {
+                w.level = .floating
+                w.collectionBehavior.insert(.canJoinAllSpaces)
+            }
         }
     }
 }

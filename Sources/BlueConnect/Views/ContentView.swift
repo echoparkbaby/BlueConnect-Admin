@@ -305,8 +305,10 @@ struct ContentView: View {
             showCustomizeRowIcons: { showingIconPicker = true },
             openChat: {
                 if let h = target, h.active {
-                    chatController.present(ChatService(host: h, settings: settings, targetUser: "", launcher: quickActionLauncher))
-                    openWindow(id: "blueconnect-chat")
+                    chatController.present(
+                        ChatService(host: h, settings: settings, targetUser: "", launcher: quickActionLauncher),
+                        openWindow: { openWindow(id: "blueconnect-chat") }
+                    )
                 }
             },
             openChatWithSpecificUser: {
@@ -521,8 +523,10 @@ struct ContentView: View {
         }
         .sheet(item: $chatTargetSheet) { host in
             ChatTargetUserSheet(host: host) { targetUser in
-                chatController.present(ChatService(host: host, settings: settings, targetUser: targetUser, launcher: quickActionLauncher))
-                openWindow(id: "blueconnect-chat")
+                chatController.present(
+                    ChatService(host: host, settings: settings, targetUser: targetUser, launcher: quickActionLauncher),
+                    openWindow: { openWindow(id: "blueconnect-chat") }
+                )
             }
             .environmentObject(settings)
         }
@@ -1042,8 +1046,10 @@ struct ContentView: View {
                 // bar's Connect → Chat submenu instead, keeping the
                 // host context menu compact.
                 Button("Chat") {
-                    chatController.present(ChatService(host: h, settings: settings, targetUser: "", launcher: quickActionLauncher))
-                    openWindow(id: "blueconnect-chat")
+                    chatController.present(
+                        ChatService(host: h, settings: settings, targetUser: "", launcher: quickActionLauncher),
+                        openWindow: { openWindow(id: "blueconnect-chat") }
+                    )
                 }
                 .disabled(!h.active)
                 Divider()
