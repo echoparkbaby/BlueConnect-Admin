@@ -45,6 +45,11 @@ final class ChatSession: ObservableObject {
 
     private var pollTimer: Timer?
     private var seenIDs: Set<String> = []
+    /// Fired when `poll()` ingests one or more new admin messages.
+    /// The delegate wires this to a "pop window to front" routine so
+    /// a buried / Spaces-shifted / fullscreen-occluded chat surfaces
+    /// when the admin types something. Nil-tolerant.
+    var onNewAdminMessage: (() -> Void)?
 
     init(sessionID: String) {
         self.sessionID = sessionID
@@ -90,13 +95,18 @@ final class ChatSession: ObservableObject {
     /// know what we wrote).
     private func poll() {
         let admin = files(in: adminDir)
+        var added = 0
         for file in admin {
             let id = "admin/\(file.lastPathComponent)"
             if seenIDs.contains(id) { continue }
             if let msg = readMessage(at: file, author: .admin, idOverride: id) {
                 messages.append(msg)
                 seenIDs.insert(id)
+                added += 1
             }
+        }
+        if added > 0 {
+            onNewAdminMessage?()
         }
     }
 
@@ -304,8 +314,36 @@ final class ChatAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         w.center()
         w.isReleasedWhenClosed = false
         w.delegate = self
+        // .canJoinAllSpaces — chat follows the user across Mission
+        // Control Spaces instead of stranding itself on the Space
+        // where it first launched.
+        // .fullScreenAuxiliary — chat surfaces over a fullscreen app
+        // (Final Cut, Keynote, browser fullscreen video) instead of
+        // hiding behind it. Without this flag the host user can't
+        // see incoming messages until they exit fullscreen.
+        w.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         w.makeKeyAndOrderFront(nil)
         self.window = w
+
+        // Wire the session's "new admin message" callback to bring
+        // the window forward. Set after window assignment so popToFront
+        // has a target.
+        session.onNewAdminMessage = { [weak self] in
+            self?.popToFront()
+        }
+    }
+
+    /// Bring the chat window forward on a new incoming message. Skipped
+    /// when the chat is already key so an in-progress conversation
+    /// doesn't keep stealing focus on every line. requestUserAttention
+    /// bounces the Dock icon if the user has the app hidden/minimized;
+    /// macOS no-ops it if the app is already active.
+    private func popToFront() {
+        guard let w = window else { return }
+        if w.isKeyWindow { return }
+        NSApp.activate(ignoringOtherApps: true)
+        w.orderFrontRegardless()
+        NSApp.requestUserAttention(.criticalRequest)
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
