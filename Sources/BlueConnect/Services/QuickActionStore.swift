@@ -136,6 +136,17 @@ final class QuickActionStore: ObservableObject {
         customActions = arr
     }
 
+    /// Overwrite an existing custom action with new values. Matches on
+    /// `id` so favorites / recents that referenced the action keep
+    /// working. If the id doesn't resolve to an existing entry the call
+    /// is a no-op (callers should use `addCustom` for that case).
+    func updateCustom(_ updated: CustomQuickAction) {
+        var arr = customActions
+        guard let idx = arr.firstIndex(where: { $0.id == updated.id }) else { return }
+        arr[idx] = updated
+        customActions = arr
+    }
+
     func removeCustom(id: String) {
         customActions = customActions.filter { $0.id != id }
     }

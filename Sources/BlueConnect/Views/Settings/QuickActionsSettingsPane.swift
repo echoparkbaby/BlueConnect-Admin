@@ -10,6 +10,11 @@ import SwiftUI
 struct QuickActionsSettingsPane: View {
     @EnvironmentObject private var quickActions: QuickActionStore
     @State private var showingAddSheet = false
+    /// When non-nil, the editor sheet appears in Edit mode pre-filled
+    /// from this action; saving routes through `updateCustom`. Separate
+    /// from `showingAddSheet` so we can't accidentally end up in both
+    /// states at once.
+    @State private var editingAction: CustomQuickAction?
 
     var body: some View {
         Form {
@@ -19,8 +24,13 @@ struct QuickActionsSettingsPane: View {
         }
         .formStyle(.grouped)
         .sheet(isPresented: $showingAddSheet) {
-            CustomQuickActionEditor { draft in
+            CustomQuickActionEditor(existing: nil) { draft in
                 quickActions.addCustom(draft)
+            }
+        }
+        .sheet(item: $editingAction) { existing in
+            CustomQuickActionEditor(existing: existing) { updated in
+                quickActions.updateCustom(updated)
             }
         }
     }
@@ -164,6 +174,14 @@ struct QuickActionsSettingsPane: View {
             }
             Spacer()
             Button {
+                editingAction = custom
+            } label: {
+                Image(systemName: "pencil")
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
+            .help("Edit this custom action")
+            Button {
                 quickActions.removeCustom(id: custom.id)
             } label: {
                 Image(systemName: "trash")
@@ -176,12 +194,18 @@ struct QuickActionsSettingsPane: View {
     }
 }
 
-/// Modal form for creating a custom Quick Action. Intentionally simpler
-/// than the built-in shape — no parameter fields, just a static shell
-/// command. Users who need a parameter dialog should propose adding a
-/// new built-in via a PR.
+/// Modal form for creating or editing a custom Quick Action. Intentionally
+/// simpler than the built-in shape — no parameter fields, just a static
+/// shell command. Users who need a parameter dialog should propose adding
+/// a new built-in via a PR.
+///
+/// Pass `existing: nil` to add a new action; pass an existing
+/// `CustomQuickAction` to edit it in place. The editor's id stays stable
+/// across edits so favorites and recents that reference the action keep
+/// working.
 struct CustomQuickActionEditor: View {
-    let onAdd: (CustomQuickAction) -> Void
+    let existing: CustomQuickAction?
+    let onSubmit: (CustomQuickAction) -> Void
     @Environment(\.dismiss) private var dismiss
 
     @State private var label: String = ""
@@ -190,6 +214,8 @@ struct CustomQuickActionEditor: View {
     @State private var command: String = ""
     @State private var isDestructive: Bool = false
     @State private var help: String = ""
+
+    private var isEditing: Bool { existing != nil }
 
     private var canSave: Bool {
         !label.trimmingCharacters(in: .whitespaces).isEmpty
@@ -205,6 +231,18 @@ struct CustomQuickActionEditor: View {
             footer
         }
         .frame(width: 520, height: 440)
+        .onAppear {
+            // Seed the form from the existing action on first appear so
+            // the @State holds the edit-mode initial values. Skipped on
+            // add (existing == nil) so the new-action defaults stand.
+            guard let e = existing else { return }
+            label = e.label
+            category = e.category
+            icon = e.icon
+            command = e.command
+            isDestructive = e.isDestructive
+            help = e.help ?? ""
+        }
     }
 
     private var header: some View {
@@ -212,7 +250,8 @@ struct CustomQuickActionEditor: View {
             Image(systemName: "wand.and.stars")
                 .font(.title3).foregroundStyle(.tint)
             VStack(alignment: .leading, spacing: 1) {
-                Text("New Custom Quick Action").font(.headline)
+                Text(isEditing ? "Edit Custom Quick Action" : "New Custom Quick Action")
+                    .font(.headline)
                 Text("Runs the shell command on the targeted host via SSH")
                     .font(.caption).foregroundStyle(.secondary)
             }
@@ -257,8 +296,12 @@ struct CustomQuickActionEditor: View {
             Spacer()
             Button("Cancel") { dismiss() }
                 .keyboardShortcut(.cancelAction)
-            Button("Add") {
+            Button(isEditing ? "Save" : "Add") {
+                // Preserve the existing id on edit so favorites/recents
+                // that reference it keep resolving. addCustom assigns a
+                // fresh UUID-based id when this is empty.
                 let draft = CustomQuickAction(
+                    id: existing?.id ?? "",
                     label: label.trimmingCharacters(in: .whitespaces),
                     category: category.trimmingCharacters(in: .whitespaces),
                     icon: icon.trimmingCharacters(in: .whitespaces),
@@ -266,7 +309,7 @@ struct CustomQuickActionEditor: View {
                     isDestructive: isDestructive,
                     help: help.isEmpty ? nil : help
                 )
-                onAdd(draft)
+                onSubmit(draft)
                 dismiss()
             }
             .buttonStyle(.borderedProminent)
