@@ -297,7 +297,11 @@ app.setActivationPolicy(.regular)
 // currently in (including fullscreen apps, given the window's
 // .canJoinAllSpaces collection behavior set in
 // applicationDidFinishLaunching).
-NSRunningApplication.current.activate(options: [.activateIgnoringOtherApps])
+// Both calls are belt-and-suspenders. .activateIgnoringOtherApps
+// was deprecated in macOS 14 (it's a no-op) so the call is
+// option-less; the activate semantics now implicitly always
+// "ignore other apps" for the current process.
+NSRunningApplication.current.activate()
 app.activate(ignoringOtherApps: true)
 app.run()
 
