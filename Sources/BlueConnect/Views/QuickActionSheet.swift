@@ -179,12 +179,12 @@ struct QuickActionSheet: View {
     @ViewBuilder
     private var detailsDisclosure: some View {
         VStack(alignment: .leading, spacing: 4) {
-            if Self.needsGuiHelperHint(actionID: action.id) {
+            if let hint = Self.guiHelperHintMarkdown(actionID: action.id) {
                 DisclosureGroup {
                     HStack(alignment: .top, spacing: 6) {
                         Image(systemName: "wand.and.rays")
                             .foregroundStyle(.orange)
-                        Text(.init("**Requires either:**\n\n1. **Quick Action** — \"Setup: Install GUI Helper\"\n2. **Package Install** — [BlueConnectHelper.pkg](https://github.com/echoparkbaby/BlueConnect-Admin/releases/latest/download/BlueConnectHelper.pkg)"))
+                        Text(.init(hint))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -241,15 +241,30 @@ struct QuickActionSheet: View {
         return String(s.prefix(70))
     }
 
-    /// Set of action IDs whose runtime dispatch goes through the GUI
-    /// Helper inbox. Add new GUI-only actions here so the warning
-    /// banner picks them up automatically.
-    private static let guiHelperActionIDs: Set<String> = [
-        "largeTypeShow", "notifyUser"
-    ]
+    /// Markdown body for the "Helper requirements" disclosure, or nil
+    /// when the action has no GUI-helper dependency. The largetype
+    /// action additionally requires the third-party `largetype`
+    /// binary (`abdusco/largetype`), so its hint lists both
+    /// requirements; notify-user is GUI Helper only.
+    private static func guiHelperHintMarkdown(actionID: String) -> String? {
+        let guiHelperLine = "**Quick Action** — \"GUI Helper\" or **Package Install** — [BlueConnectHelper.pkg](https://github.com/echoparkbaby/BlueConnect-Admin/releases/latest/download/BlueConnectHelper.pkg)"
+        switch actionID {
+        case "largeTypeShow":
+            return """
+            **Requires:**
 
-    private static func needsGuiHelperHint(actionID: String) -> Bool {
-        guiHelperActionIDs.contains(actionID)
+            1. **Largetype** — [github.com/abdusco/largetype](https://github.com/abdusco/largetype)
+            2. \(guiHelperLine)
+            """
+        case "notifyUser":
+            return """
+            **Requires:**
+
+            1. \(guiHelperLine)
+            """
+        default:
+            return nil
+        }
     }
 
     /// Bordered monospaced block showing `cmd` with a Copy button in

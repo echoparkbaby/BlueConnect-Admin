@@ -4,7 +4,7 @@
 #   - BlueConnect-Admin.dmg     (the Mac app, drag-installer)
 #   - BlueConnectHelper.pkg     (Munki-deployable chat helper + LaunchAgent;
 #                                URL is hard-linked from the in-app
-#                                "Setup: Install GUI Helper" Quick Action)
+#                                "GUI Helper" Quick Action)
 #
 # Requires .env-sign with SIGN_ID, PKG_SIGN_ID, NOTARY_PROFILE,
 # GITHUB_REPO populated. Forgejo upload is gated on FORGEJO_BASE /
@@ -65,7 +65,7 @@ git push origin "$TAG" 2>/dev/null || echo "  (origin tag push skipped)"
 
 # Build the Munki-deployable helper pkg (chat client + GUI helper +
 # LaunchAgent plist) as the second release asset. The in-app
-# "Setup: Install GUI Helper" Quick Action links operators at
+# "GUI Helper" Quick Action links operators at
 # https://github.com/<repo>/releases/download/<tag>/BlueConnectHelper.pkg —
 # they'd hit a 404 if we forgot to build + upload it here.
 # `--notarize` makes the pkg builder do its own notarize + staple

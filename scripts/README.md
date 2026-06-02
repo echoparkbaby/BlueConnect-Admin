@@ -2,7 +2,7 @@
 
 `build-helper-pkg.sh` produces **`BlueConnectHelper.pkg`** — a signed,
 optionally-notarized flat installer that bundles everything the
-"Setup: Install GUI Helper (one-time)" Quick Action installs:
+"GUI Helper" Quick Action installs:
 
 | Path | Mode | Source |
 |------|------|--------|

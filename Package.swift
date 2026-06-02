@@ -30,6 +30,11 @@ let package = Package(
         .executableTarget(
             name: "BlueConnectChat",
             path: "Sources/BlueConnectChat",
+            // Dock icon is rendered procedurally in AppDelegate (no
+            // bundled asset) — same BlueConnect navy + brand blue
+            // palette with "BC" + "CHAT" lockup. Keeps the binary
+            // small and saves the swift-frontend from chewing on a
+            // ~1.5MB embedded byte literal.
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         // Swift Testing target. Seed cases cover pure helpers

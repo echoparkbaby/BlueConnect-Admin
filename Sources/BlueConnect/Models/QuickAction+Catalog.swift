@@ -1010,8 +1010,8 @@ extension QuickAction {
                 let payload = "osascript -e \(shq(script))"
                 let payloadB64 = Data(payload.utf8).base64EncodedString()
                 // Cross-user GUI dispatch via the GUI Helper LaunchAgent
-                // (installed by the "Setup: Install GUI Helper" Quick
-                // Action). Job file lands in the world-writable inbox;
+                // (installed by the "GUI Helper" Quick Action). Job
+                // file lands in the world-writable inbox;
                 // the agent — already running in the console user's
                 // session — picks it up via WatchPaths and runs the
                 // osascript call in that session, so the notification
@@ -1023,7 +1023,7 @@ extension QuickAction {
                 INBOX="/Library/Application Support/BlueConnect/inbox"; \
                 if [ ! -d "$INBOX" ]; then \
                   echo "ERROR: GUI Helper is not installed on this Mac."; \
-                  echo "Run the 'Setup: Install GUI Helper' Quick Action first."; \
+                  echo "Run the 'GUI Helper' Quick Action first."; \
                   exit 1; \
                 fi; \
                 consoleUser=$(stat -f%Su /dev/console); \
@@ -1072,24 +1072,12 @@ extension QuickAction {
             help: """
             **ONE-TIME per Mac.** Installs a LaunchAgent that lets BlueConnect display chat and fullscreen notifications in the logged-in user's session without granting standing root.
 
-            Note: Fullscreen texts require Largetype — [github.com/abdusco/largetype](https://github.com/abdusco/largetype).
-
             **TWO ways to install:**
 
-            1. Install [BlueConnectHelper.pkg](https://github.com/echoparkbaby/BlueConnect-Admin/releases/latest/download/BlueConnectHelper.pkg) (signed/notarized).
-            2. Run this Quick Action. It prompts once for sudo, installs the files, and loads the agent for the current console user.
+            1. Run this Quick Action. It prompts once for sudo, installs the files, and loads the agent for the current console user.
+            2. Install [BlueConnectHelper.pkg](https://github.com/echoparkbaby/BlueConnect-Admin/releases/latest/download/BlueConnectHelper.pkg) (signed/notarized).
 
-            **Files installed:**
-
-            - `/usr/local/bin/blueconnect-gui-helper` — worker script
-            - `/usr/local/bin/blueconnect-chat` — chat client (universal binary)
-            - `/Library/LaunchAgents/xyz.hellocomputer.blueconnect-helper.plist` — Aqua-session LaunchAgent
-            - `/Library/Application Support/BlueConnect/inbox/` — job drop folder (world-writable)
-
-            **Uninstall options:**
-
-            1. Run **Setup: Uninstall GUI Helper** from Miscellaneous.
-            2. Paste the command below into Terminal on the target Mac.
+            Note: Fullscreen texts require Largetype — [github.com/abdusco/largetype](https://github.com/abdusco/largetype).
             """,
             copyableCommand: "sudo launchctl bootout gui/$(id -u $(stat -f%Su /dev/console)) /Library/LaunchAgents/xyz.hellocomputer.blueconnect-helper.plist && sudo rm /Library/LaunchAgents/xyz.hellocomputer.blueconnect-helper.plist /usr/local/bin/blueconnect-gui-helper /usr/local/bin/blueconnect-chat && sudo rm -rf '/Library/Application Support/BlueConnect'",
             buildCommand: { v in
@@ -1409,7 +1397,7 @@ extension QuickAction {
                 INBOX="/Library/Application Support/BlueConnect/inbox"; \
                 if [ ! -d "$INBOX" ]; then \
                   echo "ERROR: GUI Helper is not installed on this Mac."; \
-                  echo "Run the 'Setup: Install GUI Helper' Quick Action first."; \
+                  echo "Run the 'GUI Helper' Quick Action first."; \
                   exit 1; \
                 fi; \
                 consoleUser=$(stat -f%Su /dev/console); \

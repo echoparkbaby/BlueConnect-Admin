@@ -244,7 +244,13 @@ struct ChatRoot: View {
                     .textFieldStyle(.roundedBorder)
                     // Mirror the admin-side cap (ChatWindow.swift).
                     // 12 lines fits a long reply without burying the
-                    // transcript above.
+                    // transcript above. NOTE: on macOS 14 hosts the
+                    // SwiftUI TextField + axis: .vertical layout path
+                    // doesn't grow with .lineLimit (works fine on
+                    // 15+). Tried frame(maxHeight:) + fixedSize as a
+                    // workaround; no dice. Treating as a known
+                    // macOS-14 limitation rather than carrying a
+                    // workaround that doesn't actually work.
                     .lineLimit(1...12)
                     .focused($inputFocused)
                     .onSubmit { session.send() }
@@ -328,6 +334,7 @@ final class ChatAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         installMenu()
+        installDockIcon()
         let root = ChatRoot(session: session, title: title)
         let hosting = NSHostingController(rootView: root)
         let w = NSWindow(contentViewController: hosting)
@@ -357,6 +364,100 @@ final class ChatAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         DispatchQueue.main.async { [weak self] in
             self?.popToFront(force: true)
         }
+    }
+
+    /// Replace the default generic-executable dock icon with a
+    /// procedurally-rendered "BC / CHAT" mark on a navy rounded
+    /// square. Mirrors the BlueConnect Admin AppIcon palette (deep
+    /// navy background, brand-blue accent) so the chat window reads
+    /// as part of the same product family without shipping a separate
+    /// .icns asset alongside the standalone binary. Without this,
+    /// chat windows appear in the dock + cmd-tab with the generic
+    /// command-line-tool icon.
+    ///
+    /// Draws into an explicit `NSBitmapImageRep` rather than via
+    /// `NSImage.lockFocus()`. The lockFocus path on macOS 14/15
+    /// produces an `NSCachedImageRep` whose bytes live in the WS
+    /// backing store; when the Dock asks for the icon's bitmap it
+    /// gets an empty buffer (renders fully black). The bitmap-rep
+    /// path holds the pixels in-process, so the Dock gets a real
+    /// CGImage on `applicationIconImage` assignment.
+    private func installDockIcon() {
+        // 1024 source so the dock has plenty of headroom on retina
+        // (it downsamples to whatever the current dock size is).
+        let edge: Int = 1024
+        let edgef = CGFloat(edge)
+        guard let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: edge, pixelsHigh: edge,
+            bitsPerSample: 8, samplesPerPixel: 4,
+            hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bitmapFormat: [],
+            bytesPerRow: 0, bitsPerPixel: 32
+        ),
+              let ctx = NSGraphicsContext(bitmapImageRep: rep)
+        else { return }
+        rep.size = NSSize(width: edgef, height: edgef)
+
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = ctx
+        defer {
+            NSGraphicsContext.restoreGraphicsState()
+        }
+
+        // Background: matches the Admin AppIcon navy with a top→
+        // bottom gradient. Inset gives the rounded "tile" the macOS
+        // app-icon margin you see on every native app.
+        let inset: CGFloat = 90
+        let tile = NSRect(x: inset, y: inset,
+                          width: edgef - 2 * inset,
+                          height: edgef - 2 * inset)
+        let radius = tile.width * 0.22
+        let path = NSBezierPath(roundedRect: tile,
+                                xRadius: radius, yRadius: radius)
+        let gradient = NSGradient(colors: [
+            NSColor(red: 0.10, green: 0.18, blue: 0.34, alpha: 1.0), // top
+            NSColor(red: 0.03, green: 0.06, blue: 0.14, alpha: 1.0), // bottom
+        ])
+        gradient?.draw(in: path, angle: 270)
+
+        // Outline halo so the tile reads at small dock sizes.
+        NSColor.black.withAlphaComponent(0.55).setStroke()
+        path.lineWidth = 4
+        path.stroke()
+
+        // "BC" centered in the upper portion. SF heavy at this size
+        // approximates the chunky letterform of the Admin "bc" mark
+        // without needing the custom-drawn glyph asset.
+        let centerPara = NSMutableParagraphStyle()
+        centerPara.alignment = .center
+        let bcAttrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 520, weight: .heavy),
+            .foregroundColor: NSColor.white,
+            .paragraphStyle: centerPara,
+            .kern: -8,
+        ]
+        let bc = NSAttributedString(string: "BC", attributes: bcAttrs)
+        let bcSize = bc.size()
+        bc.draw(at: NSPoint(x: (edgef - bcSize.width) / 2,
+                            y: 320))
+
+        // "CHAT" subtitle in BlueConnect's accent blue, tracked out.
+        let chatAttrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 130, weight: .semibold),
+            .foregroundColor: NSColor(red: 0.38, green: 0.62, blue: 0.98, alpha: 1.0),
+            .paragraphStyle: centerPara,
+            .kern: 14,
+        ]
+        let chat = NSAttributedString(string: "CHAT", attributes: chatAttrs)
+        let chatSize = chat.size()
+        chat.draw(at: NSPoint(x: (edgef - chatSize.width) / 2,
+                              y: 180))
+
+        let image = NSImage(size: NSSize(width: edgef, height: edgef))
+        image.addRepresentation(rep)
+        NSApp.applicationIconImage = image
     }
 
     /// Build a minimal menu bar. macOS doesn't auto-create one for
