@@ -297,12 +297,12 @@ app.setActivationPolicy(.regular)
 // currently in (including fullscreen apps, given the window's
 // .canJoinAllSpaces collection behavior set in
 // applicationDidFinishLaunching).
-// Both calls are belt-and-suspenders. .activateIgnoringOtherApps
-// was deprecated in macOS 14 (it's a no-op) so the call is
-// option-less; the activate semantics now implicitly always
-// "ignore other apps" for the current process.
-NSRunningApplication.current.activate()
-app.activate(ignoringOtherApps: true)
+// Activation happens AFTER the window is shown, inside
+// applicationDidFinishLaunching - calling it here (before run()
+// kicks off the runloop) is a no-op because there's no window
+// yet for the WindowServer to bring forward. The previous
+// version of this file did exactly that and the relaunch-pop
+// behaviour silently broke on macOS 14+.
 app.run()
 
 /// Owns the SwiftUI window for the chat. We use NSApp + NSWindow
@@ -324,6 +324,7 @@ final class ChatAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        installMenu()
         let root = ChatRoot(session: session, title: title)
         let hosting = NSHostingController(rootView: root)
         let w = NSWindow(contentViewController: hosting)
@@ -333,36 +334,94 @@ final class ChatAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         w.center()
         w.isReleasedWhenClosed = false
         w.delegate = self
-        // .canJoinAllSpaces — chat follows the user across Mission
-        // Control Spaces instead of stranding itself on the Space
-        // where it first launched.
-        // .fullScreenAuxiliary — chat surfaces over a fullscreen app
-        // (Final Cut, Keynote, browser fullscreen video) instead of
-        // hiding behind it. Without this flag the host user can't
-        // see incoming messages until they exit fullscreen.
+        // .canJoinAllSpaces - follow the user across Mission Control
+        // Spaces instead of stranding ourselves on the Space we
+        // launched on. .fullScreenAuxiliary - surface over a
+        // fullscreen app instead of hiding behind it.
         w.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         w.makeKeyAndOrderFront(nil)
         self.window = w
 
-        // Wire the session's "new admin message" callback to bring
-        // the window forward. Set after window assignment so popToFront
-        // has a target.
         session.onNewAdminMessage = { [weak self] in
             self?.popToFront()
         }
+
+        // Defer activation one runloop tick so the window has
+        // actually been mounted by the WindowServer. Activating
+        // synchronously inside applicationDidFinishLaunching is
+        // sometimes a no-op because the app's process isn't yet
+        // eligible to be foregrounded.
+        DispatchQueue.main.async { [weak self] in
+            self?.popToFront(force: true)
+        }
     }
 
-    /// Bring the chat window forward on a new incoming message. Skipped
-    /// when the chat is already key so an in-progress conversation
-    /// doesn't keep stealing focus on every line. requestUserAttention
-    /// bounces the Dock icon if the user has the app hidden/minimized;
-    /// macOS no-ops it if the app is already active.
-    private func popToFront() {
+    /// Build a minimal menu bar. macOS doesn't auto-create one for
+    /// LSUIElement-style processes; without an explicit menu the
+    /// Edit/Select-All shortcut (⌘A) has no responder to land on.
+    /// Adds an Edit menu with Select All (⌘A) wired to copyAllToPasteboard
+    /// on the session so the operator can grab the full transcript even
+    /// across multiple SwiftUI Text bubbles (which don't support a
+    /// single drag-select).
+    private func installMenu() {
+        let main = NSMenu()
+        // App menu (Quit)
+        let appItem = NSMenuItem()
+        appItem.submenu = NSMenu(title: "App")
+        appItem.submenu?.addItem(
+            NSMenuItem(title: "Quit Chat",
+                       action: #selector(NSApplication.terminate(_:)),
+                       keyEquivalent: "q")
+        )
+        // Edit menu (Select All + Copy)
+        let edit = NSMenuItem()
+        edit.submenu = NSMenu(title: "Edit")
+        let copyAll = NSMenuItem(title: "Copy All Messages",
+                                 action: #selector(copyAllMessages),
+                                 keyEquivalent: "a")
+        copyAll.target = self
+        edit.submenu?.addItem(copyAll)
+        main.addItem(appItem)
+        main.addItem(edit)
+        NSApp.mainMenu = main
+    }
+
+    @objc private func copyAllMessages() {
+        let text = session.messages.map { msg -> String in
+            let who = msg.author == .admin ? "Admin" : "Me"
+            return "[\(who)] \(msg.text)"
+        }.joined(separator: "\n")
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(text, forType: .string)
+    }
+
+    /// Bring the chat window forward. `force: true` skips the
+    /// "already key" check (used at launch). Otherwise the call is a
+    /// no-op when the chat is the key window, so an in-progress
+    /// conversation doesn't keep stealing focus on every line typed.
+    ///
+    /// The level-bump trick: temporarily raise the window above the
+    /// normal layer so the WindowServer actually pulls it over
+    /// fullscreen content, then revert on the next runloop tick. Just
+    /// orderFrontRegardless() on a `.normal`-level window doesn't
+    /// always cross a fullscreen Space boundary on macOS 14+.
+    private func popToFront(force: Bool = false) {
         guard let w = window else { return }
-        if w.isKeyWindow { return }
+        if !force && w.isKeyWindow { return }
+        let original = w.level
+        w.level = .floating
         NSApp.activate(ignoringOtherApps: true)
+        NSRunningApplication.current.activate()
         w.orderFrontRegardless()
+        w.makeKey()
         NSApp.requestUserAttention(.criticalRequest)
+        // Revert window level so the chat doesn't stay always-on-top
+        // for the rest of the session (would be annoying once the
+        // operator has acknowledged the message).
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            w.level = original
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
