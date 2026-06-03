@@ -1354,6 +1354,7 @@ struct ContentView: View {
         let isHelperInstall =
             action.id == "setupGuiHelper" &&
             command.contains("/usr/local/bin/blueconnect-gui-helper")
+        let user = host.effectiveUser(default: settings.defaultRemoteUser)
         if isHelperInstall,
            let chatURL = Bundle.main.url(forResource: "blueconnect-chat", withExtension: nil) {
             Task { @MainActor in
@@ -1361,21 +1362,21 @@ struct ContentView: View {
                     localPath: chatURL.path,
                     remotePath: "/tmp/blueconnect-chat",
                     host: host,
-                    remoteUser: settings.defaultRemoteUser
+                    remoteUser: user
                 )
                 if status != 0 {
                     Log.warn("Setup",
                              "SCP of chat binary to \(host.displayName) failed (status \(status)): \(stderr.prefix(200))")
                 }
                 svc.openRemoteCommand(host: host,
-                                      remoteUser: settings.defaultRemoteUser,
+                                      remoteUser: user,
                                       command: command,
                                       label: action.tabLabel)
             }
             return
         }
         svc.openRemoteCommand(host: host,
-                              remoteUser: settings.defaultRemoteUser,
+                              remoteUser: user,
                               command: command,
                               label: action.tabLabel)
     }
@@ -1408,7 +1409,7 @@ struct ContentView: View {
         case .testRun:   label = "test-run"
         }
         svc.openRemoteCommand(host: host,
-                              remoteUser: settings.defaultRemoteUser,
+                              remoteUser: host.effectiveUser(default: settings.defaultRemoteUser),
                               command: command,
                               label: label)
     }
@@ -1479,7 +1480,7 @@ struct ContentView: View {
             terminals: terminals
         )
         svc.openRemoteCommand(host: host,
-                              remoteUser: settings.defaultRemoteUser,
+                              remoteUser: host.effectiveUser(default: settings.defaultRemoteUser),
                               command: cmd,
                               label: "install: \(pkg.name)")
     }
