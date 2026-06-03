@@ -169,8 +169,7 @@ struct MunkiReportRunnerSheet: View {
     // MARK: - Run
 
     private var remoteUser: String {
-        let trimmed = settings.defaultRemoteUser.trimmingCharacters(in: .whitespaces)
-        return trimmed.isEmpty ? "ladmin" : trimmed
+        host.effectiveUser(default: settings.defaultRemoteUser)
     }
 
     private func runIfReady() {
