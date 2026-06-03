@@ -928,7 +928,7 @@ struct ContentView: View {
                     )
                 }
             }
-            .width(min: 156, ideal: 168, max: 192)
+            .width(min: 200, ideal: 210, max: 240)
             .customizationID("connect")
             TableColumn("User", value: \BlueSkyHost.usernameSortKey) { h in
                 UserCell(host: h, defaultUser: settings.defaultRemoteUser)
