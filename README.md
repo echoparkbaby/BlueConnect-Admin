@@ -6,14 +6,14 @@ A native macOS admin client for [BlueSkyConnect](https://github.com/BlueSkyTools
 
 > [!IMPORTANT]
 > **Upgrading from v1.2.x? Re-deploy the server-side PHP after updating the Mac app.**
-> 
-> v1.5.0 is the next public release after v1.2.0. Internal builds tagged 1.3 and 1.4 rolled into this one. v1.5.0 introduces:
+>
+> Current release is **v1.5.3** (Mac-app only patch over v1.5.0). v1.5.0 is the first public release after v1.2.0; the internal 1.3 and 1.4 builds rolled into it. The Mac upgrade alone doesn't carry the v1.5.0 server changes:
 >
 > - a new `bs_blocklist.json.php` endpoint
 > - a new `block` / `unblock` action in `bs_host_action.json.php` (auto-installs the `BlueSky.blocked_serials` table plus a `BEFORE INSERT` trigger that refuses re-registration of sold/transferred Macs)
 > - an updated `blueconnect_api.php` covering seven more MunkiReport modules: local users, network, Wi-Fi, software updates, profiles, time machine, pending installs
 >
-> The Mac app upgrade alone doesn't pick those up. Push the new PHP files:
+> Push the new PHP files:
 >
 > ```sh
 > ./deploy-server.sh <ssh-user>@<bsc-host>
@@ -34,7 +34,7 @@ A native macOS admin client for [BlueSkyConnect](https://github.com/BlueSkyTools
 >
 > Runs every minute and scrubs any rogue row or key the `BEFORE INSERT` trigger missed.
 >
-> See [RELEASE_NOTES.md](RELEASE_NOTES.md) for the full v1.5.0 list: UniFi multi-profile, Install Package picker rework, MunkiReport Run Runner with live log, Munki favorites, and everything from the rolled-up 1.3 / 1.4 work.
+> See [RELEASE_NOTES.md](RELEASE_NOTES.md) for the full v1.5.x list: v1.5.0's UniFi multi-profile, Install Package picker rework, MunkiReport Run Runner with live log, Munki favorites, and the rolled-up 1.3 / 1.4 work; the v1.5.1 chat dock + helper rework; v1.5.2's chat install button and host switching fixes; v1.5.3's per-host username and Hosts-table bolt fixes.
 
 ## Contents
 
