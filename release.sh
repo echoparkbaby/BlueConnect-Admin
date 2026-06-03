@@ -79,17 +79,41 @@ PKG_VERSION="$VERSION" bash "$PROJECT_ROOT/scripts/build-helper-pkg.sh" --notari
 NOTES="${RELEASE_NOTES_FILE:-$PROJECT_ROOT/RELEASE_NOTES.md}"
 
 echo "▶ gh release create (GitHub)"
+# `--latest` is explicit so the release lands as Latest even if a higher
+# semver tag exists transiently (e.g. a draft 1.6.0 created out of order
+# during testing). Without it gh defers to its automatic latest selection,
+# which is "most recent stable by date + semver" — usually right, but a
+# stray draft can confuse it. `--prerelease=false` and `--draft=false` are
+# defaults but listed so future-us doesn't have to dig through gh's help.
 if [[ -f "$NOTES" ]]; then
     gh release create "$TAG" "$DMG" "$HELPER_PKG" \
         --repo "$GITHUB_REPO" \
         --title "$TAG" \
-        --notes-file "$NOTES"
+        --notes-file "$NOTES" \
+        --latest \
+        --prerelease=false \
+        --draft=false
 else
     gh release create "$TAG" "$DMG" "$HELPER_PKG" \
         --repo "$GITHUB_REPO" \
         --title "$TAG" \
-        --generate-notes
+        --generate-notes \
+        --latest \
+        --prerelease=false \
+        --draft=false
 fi
+
+# Assert /releases/latest now resolves to this tag. Hard-fail the script
+# if not — that's the only signal we get if a draft/prerelease flag slipped
+# through, or if GitHub ever changes its latest-selection rule.
+echo "▶ verify /releases/latest → $TAG"
+LATEST_TAG="$(gh api "/repos/$GITHUB_REPO/releases/latest" --jq .tag_name 2>/dev/null || echo "")"
+if [[ "$LATEST_TAG" != "$TAG" ]]; then
+    echo "  ✖ /releases/latest returned '$LATEST_TAG', expected '$TAG'" >&2
+    echo "    fix with:  gh release edit $TAG --repo $GITHUB_REPO --latest --prerelease=false --draft=false" >&2
+    exit 1
+fi
+echo "  ✓ /releases/latest = $LATEST_TAG"
 
 # Forgejo release — POST a release record + upload the DMG as an
 # asset. Config is optional: skip if FORGEJO_BASE / FORGEJO_TOKEN
@@ -100,11 +124,13 @@ if [[ -n "${FORGEJO_BASE:-}" && -n "${FORGEJO_TOKEN:-}" ]]; then
     FORGEJO_REPO_PATH="$(git remote get-url origin | sed -E 's#^https?://[^/]+/##; s#\.git$##')"
     echo "▶ Forgejo release: $FORGEJO_BASE/$FORGEJO_REPO_PATH"
     BODY="$(if [[ -f "$NOTES" ]]; then cat "$NOTES"; else echo "$TAG"; fi)"
+    # Forgejo 8.0+ honors `make_latest` (same semantics as GitHub's). Older
+    # Forgejo versions ignore the field — safe no-op.
     REL_JSON=$(jq -n \
         --arg tag "$TAG" \
         --arg name "$TAG" \
         --arg body "$BODY" \
-        '{tag_name:$tag,name:$name,body:$body,draft:false,prerelease:false}')
+        '{tag_name:$tag,name:$name,body:$body,draft:false,prerelease:false,make_latest:"true"}')
     REL_RESP=$(curl -sS -X POST \
         -H "Authorization: token $FORGEJO_TOKEN" \
         -H "Content-Type: application/json" \
