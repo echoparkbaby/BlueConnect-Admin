@@ -8,12 +8,21 @@
  * by renaming module routes or auth helpers.
  *
  * Install:
- *   1. Copy this file to MR's public dir:
- *        ~/docker/stacks/munkireport-php/public/blueconnect_api.php
- *      (the same dir that holds MR's index.php / .htaccess)
- *   2. Add an env var to the MR container so this file knows the secret:
+ *   1. Copy this file to MR's public dir (same dir that holds MR's
+ *      index.php / .htaccess). On Docker MR this is e.g.
+ *      ~/docker/stacks/munkireport-php/public/blueconnect_api.php;
+ *      on a native macOS install it's whatever DocumentRoot Apache
+ *      points at (often /Library/WebServer/Documents/munkireport/public).
+ *   2. Add the secret to MR's `.env` (the one at MR's project root,
+ *      one level above `public/`):
  *        echo 'BLUECONNECT_API_TOKEN=<random 32+ chars>' >> .env
- *      then `docker compose up -d` to restart the container with it set.
+ *      Then:
+ *        - Docker MR: `docker compose up -d` to restart the container.
+ *        - Native MR: nothing extra to do — this file reads `.env`
+ *          directly when getenv() comes up empty (which is what
+ *          happens under mod_php/php-fpm on macOS, since MR's
+ *          framework loads `.env` into MR's own config but not
+ *          into the OS process environment).
  *   3. From the BlueConnect Admin app: Settings → MunkiReport → paste
  *      the same token into the API Token field. Run Test Connection.
  *
@@ -33,7 +42,8 @@
  * Failure modes:
  *   401 — missing / malformed Authorization header
  *   403 — wrong token (constant-time compare)
- *   503 — server-side BLUECONNECT_API_TOKEN env var not set or < 12 chars
+ *   503 — BLUECONNECT_API_TOKEN not found (or < 12 chars) in either
+ *         the process environment or MR's `.env` file
  *   500 — DB connection failure (message includes the driver-level error)
  *   400 — unknown action or missing required parameter
  */
@@ -41,10 +51,48 @@
 header('Content-Type: application/json');
 
 // ---------------------------------------------------------------- token
+//
+// Token resolution: process env first (the Docker MR path), then
+// fall back to parsing MR's .env file directly (the native-Apache
+// path — mod_php/php-fpm on macOS doesn't inherit MR's app-level
+// .env into getenv()).
 $expected = getenv('BLUECONNECT_API_TOKEN');
+if (!$expected) {
+    // MR's .env sits at the project root, one above public/. Check
+    // there first, then the sibling (some installs flatten the
+    // layout), then a couple of common parents as belt-and-suspenders.
+    $candidates = [
+        dirname(__DIR__) . '/.env',
+        __DIR__ . '/.env',
+        dirname(__DIR__, 2) . '/.env',
+    ];
+    foreach ($candidates as $env_file) {
+        if (!is_file($env_file) || !is_readable($env_file)) continue;
+        $lines = @file($env_file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+        if ($lines === false) continue;
+        foreach ($lines as $line) {
+            $line = ltrim($line);
+            if ($line === '' || $line[0] === '#') continue;
+            if (strncmp($line, 'BLUECONNECT_API_TOKEN=', 22) !== 0) continue;
+            // Strip surrounding single/double quotes and trailing
+            // whitespace. Some users wrap the value because other
+            // MR keys do, even though dotenv treats both forms the
+            // same.
+            $val = trim(substr($line, 22));
+            if (strlen($val) >= 2) {
+                $first = $val[0]; $last = $val[strlen($val) - 1];
+                if (($first === '"' && $last === '"') || ($first === "'" && $last === "'")) {
+                    $val = substr($val, 1, -1);
+                }
+            }
+            $expected = $val;
+            break 2;
+        }
+    }
+}
 if (!$expected || strlen($expected) < 12) {
     http_response_code(503);
-    echo json_encode(['error' => 'BLUECONNECT_API_TOKEN env var not set on the MR container (min 12 chars). See blueconnect_api.php docstring.']);
+    echo json_encode(['error' => 'BLUECONNECT_API_TOKEN not found (min 12 chars). Add it to MR\'s .env (one level above public/) and restart Apache, or set it in the Docker container env. See blueconnect_api.php docstring.']);
     exit;
 }
 
