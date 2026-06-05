@@ -19,10 +19,15 @@
  *      Then:
  *        - Docker MR: `docker compose up -d` to restart the container.
  *        - Native MR: nothing extra to do — this file reads `.env`
- *          directly when getenv() comes up empty (which is what
- *          happens under mod_php/php-fpm on macOS, since MR's
- *          framework loads `.env` into MR's own config but not
- *          into the OS process environment).
+ *          directly when getenv() comes up empty, which is what
+ *          happens under mod_php/php-fpm on macOS (MR's framework
+ *          loads `.env` into MR's own config but not into the OS
+ *          process environment). The `.env` fallback covers every
+ *          key read here, so MR's `CONNECTION_DRIVER`,
+ *          `CONNECTION_SQLITE_FILE_NAME` (or `CONNECTION_HOST` /
+ *          `CONNECTION_DATABASE` / etc. for MySQL) flow through
+ *          the same way the token does. Set them in MR's `.env`
+ *          as you normally would.
  *   3. From the BlueConnect Admin app: Settings → MunkiReport → paste
  *      the same token into the API Token field. Run Test Connection.
  *
@@ -50,46 +55,62 @@
 
 header('Content-Type: application/json');
 
-// ---------------------------------------------------------------- token
-//
-// Token resolution: process env first (the Docker MR path), then
-// fall back to parsing MR's .env file directly (the native-Apache
-// path — mod_php/php-fpm on macOS doesn't inherit MR's app-level
-// .env into getenv()).
-$expected = getenv('BLUECONNECT_API_TOKEN');
-if (!$expected) {
-    // MR's .env sits at the project root, one above public/. Check
-    // there first, then the sibling (some installs flatten the
-    // layout), then a couple of common parents as belt-and-suspenders.
-    $candidates = [
-        dirname(__DIR__) . '/.env',
-        __DIR__ . '/.env',
-        dirname(__DIR__, 2) . '/.env',
-    ];
-    foreach ($candidates as $env_file) {
-        if (!is_file($env_file) || !is_readable($env_file)) continue;
-        $lines = @file($env_file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-        if ($lines === false) continue;
-        foreach ($lines as $line) {
-            $line = ltrim($line);
-            if ($line === '' || $line[0] === '#') continue;
-            if (strncmp($line, 'BLUECONNECT_API_TOKEN=', 22) !== 0) continue;
-            // Strip surrounding single/double quotes and trailing
-            // whitespace. Some users wrap the value because other
-            // MR keys do, even though dotenv treats both forms the
-            // same.
-            $val = trim(substr($line, 22));
-            if (strlen($val) >= 2) {
-                $first = $val[0]; $last = $val[strlen($val) - 1];
-                if (($first === '"' && $last === '"') || ($first === "'" && $last === "'")) {
-                    $val = substr($val, 1, -1);
+/**
+ * Lookup an env var with a fall back to parsing MR's `.env` directly.
+ *
+ * Native macOS Apache (mod_php / php-fpm) doesn't inherit MR's
+ * app-level `.env` into the OS process environment — MR's framework
+ * loads it into MR's own config only. So plain getenv() returns false
+ * for BLUECONNECT_API_TOKEN, CONNECTION_SQLITE_FILE_NAME, CONNECTION_*,
+ * and everything else MR users normally put in `.env`.
+ *
+ * This helper checks getenv() first (the Docker MR fast path) and
+ * otherwise parses the first readable `.env` it finds among a few
+ * likely locations (MR's project root one level above `public/`, the
+ * file's own dir, the grandparent). Parse result is cached per-request.
+ *
+ * Returns the env value as a string, or $default if nothing matches.
+ */
+function bc_env($key, $default = false) {
+    static $env = null;
+    $v = getenv($key);
+    if ($v !== false) return $v;
+    if ($env === null) {
+        $env = [];
+        $candidates = [
+            dirname(__DIR__) . '/.env',
+            __DIR__ . '/.env',
+            dirname(__DIR__, 2) . '/.env',
+        ];
+        foreach ($candidates as $env_file) {
+            if (!is_file($env_file) || !is_readable($env_file)) continue;
+            $lines = @file($env_file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+            if ($lines === false) continue;
+            foreach ($lines as $line) {
+                $line = ltrim($line);
+                if ($line === '' || $line[0] === '#') continue;
+                $eq = strpos($line, '=');
+                if ($eq === false) continue;
+                $k = rtrim(substr($line, 0, $eq));
+                $val = trim(substr($line, $eq + 1));
+                // Strip surrounding matched single/double quotes.
+                if (strlen($val) >= 2) {
+                    $first = $val[0]; $last = $val[strlen($val) - 1];
+                    if (($first === '"' && $last === '"') || ($first === "'" && $last === "'")) {
+                        $val = substr($val, 1, -1);
+                    }
                 }
+                if (!isset($env[$k])) $env[$k] = $val;
             }
-            $expected = $val;
-            break 2;
+            // Stop after the first readable file — MR has one canonical `.env`.
+            break;
         }
     }
+    return isset($env[$key]) ? $env[$key] : $default;
 }
+
+// ---------------------------------------------------------------- token
+$expected = bc_env('BLUECONNECT_API_TOKEN');
 if (!$expected || strlen($expected) < 12) {
     http_response_code(503);
     echo json_encode(['error' => 'BLUECONNECT_API_TOKEN not found (min 12 chars). Add it to MR\'s .env (one level above public/) and restart Apache, or set it in the Docker container env. See blueconnect_api.php docstring.']);
@@ -121,17 +142,22 @@ if (!hash_equals($expected, $m[1])) {
 }
 
 // ----------------------------------------------------------------- DB
-$driver = getenv('CONNECTION_DRIVER') ?: 'sqlite';
+//
+// All CONNECTION_* keys are read through bc_env() so a native macOS
+// MR install (where mod_php's getenv() never sees MR's .env) still
+// picks up the right SQLite path / MySQL host. Docker MR users get
+// the same values through the regular process-env fast path.
+$driver = bc_env('CONNECTION_DRIVER') ?: 'sqlite';
 try {
     if ($driver === 'sqlite') {
-        $sqlite_path = getenv('CONNECTION_SQLITE_FILE_NAME') ?: '/var/munkireport/app.sqlite';
+        $sqlite_path = bc_env('CONNECTION_SQLITE_FILE_NAME') ?: '/var/munkireport/app.sqlite';
         $pdo = new PDO("sqlite:$sqlite_path");
     } else {
-        $host = getenv('CONNECTION_HOST') ?: 'db';
-        $port = getenv('CONNECTION_PORT') ?: '3306';
-        $name = getenv('CONNECTION_DATABASE') ?: 'munkireport';
-        $user = getenv('CONNECTION_USERNAME') ?: 'munkireport';
-        $pass = getenv('CONNECTION_PASSWORD') ?: '';
+        $host = bc_env('CONNECTION_HOST') ?: 'db';
+        $port = bc_env('CONNECTION_PORT') ?: '3306';
+        $name = bc_env('CONNECTION_DATABASE') ?: 'munkireport';
+        $user = bc_env('CONNECTION_USERNAME') ?: 'munkireport';
+        $pass = bc_env('CONNECTION_PASSWORD') ?: '';
         $dsn = "$driver:host=$host;port=$port;dbname=$name;charset=utf8mb4";
         $pdo = new PDO($dsn, $user, $pass);
     }
