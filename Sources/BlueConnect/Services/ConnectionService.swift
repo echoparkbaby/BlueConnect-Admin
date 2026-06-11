@@ -13,13 +13,24 @@ struct ConnectionService {
 
     private func proxyCommand() -> String {
         // Ports/keys here are quoted by the consumer's outer shell.
-        "ssh -o WarnWeakCrypto=no -p \(serverSshPort) -i \(adminKeyPath) admin@\(server) /bin/nc %h %p"
+        "ssh -o WarnWeakCrypto=no -o IdentitiesOnly=yes -p \(serverSshPort) -i \(adminKeyPath) admin@\(server) /bin/nc %h %p"
     }
 
     /// Open an embedded terminal tab and run an interactive ssh.
     func openSSH(host: BlueSkyHost, remoteUser: String) {
+        // Second-layer guard against `@localhost` spawns when both
+        // per-host username and Settings default are blank. UI callers
+        // already check; this catches any path that forgot to.
+        guard !remoteUser.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            let bash = "echo 'No remote username for #\(host.blueskyid). Set one via right-click → Set Username… or Settings → Connection defaults.'; exit 2"
+            Task { @MainActor in
+                _ = terminals.openSSH(blueskyid: host.blueskyid, displayName: host.displayName,
+                                      executable: "/bin/bash", args: ["-c", bash])
+            }
+            return
+        }
         onConnect?(host)
-        let proxy = "ProxyCommand=ssh -o WarnWeakCrypto=no -p \(serverSshPort) -i \(adminKeyPath) admin@\(server) /bin/nc %h %p"
+        let proxy = "ProxyCommand=ssh -o WarnWeakCrypto=no -o IdentitiesOnly=yes -p \(serverSshPort) -i \(adminKeyPath) admin@\(server) /bin/nc %h %p"
         let args = [
             "-t", "-o", proxy,
             "-o", "StrictHostKeyChecking=no",
@@ -43,7 +54,7 @@ struct ConnectionService {
         let filename = localFile.lastPathComponent
         let remotePath = "/tmp/\(filename)"
         let ext = (filename as NSString).pathExtension.lowercased()
-        let proxy = "ProxyCommand=ssh -o WarnWeakCrypto=no -p \(serverSshPort) -i \(adminKeyPath) admin@\(server) /bin/nc %h %p"
+        let proxy = "ProxyCommand=ssh -o WarnWeakCrypto=no -o IdentitiesOnly=yes -p \(serverSshPort) -i \(adminKeyPath) admin@\(server) /bin/nc %h %p"
 
         let installCmd: String
         switch ext {
@@ -102,7 +113,7 @@ struct ConnectionService {
         let appName = localApp.deletingPathExtension().lastPathComponent
         let dmgFile = "\(appName).dmg"
         let remotePath = "/tmp/\(dmgFile)"
-        let proxy = "ProxyCommand=ssh -o WarnWeakCrypto=no -p \(serverSshPort) -i \(adminKeyPath) admin@\(server) /bin/nc %h %p"
+        let proxy = "ProxyCommand=ssh -o WarnWeakCrypto=no -o IdentitiesOnly=yes -p \(serverSshPort) -i \(adminKeyPath) admin@\(server) /bin/nc %h %p"
 
         let remoteScript = """
         cat > \(Self.shq(remotePath)) && \
@@ -156,12 +167,14 @@ struct ConnectionService {
                         remotePath: String,
                         host: BlueSkyHost,
                         remoteUser: String) async -> (Int32, String) {
-        let proxy = "ssh -o WarnWeakCrypto=no -p \(serverSshPort) -i \(adminKeyPath) admin@\(server) /bin/nc %h %p"
+        let proxy = "ssh -o WarnWeakCrypto=no -o IdentitiesOnly=yes -p \(serverSshPort) -i \(adminKeyPath) admin@\(server) /bin/nc %h %p"
+        // BatchMode dropped — see SCPTransfer.start() rationale. The
+        // ConnectTimeout=15 still bounds the worst-case wait if the
+        // tunnel/key has no answerer.
         let args = [
             "-o", "ProxyCommand=\(proxy)",
             "-o", "StrictHostKeyChecking=no",
             "-o", "WarnWeakCrypto=no",
-            "-o", "BatchMode=yes",
             "-o", "ConnectTimeout=15",
             "-P", "\(host.sshPort)",
             localPath,
@@ -187,7 +200,7 @@ struct ConnectionService {
     func openRemoteCommand(host: BlueSkyHost, remoteUser: String,
                            command: String, label: String) {
         onConnect?(host)
-        let proxy = "ProxyCommand=ssh -o WarnWeakCrypto=no -p \(serverSshPort) -i \(adminKeyPath) admin@\(server) /bin/nc %h %p"
+        let proxy = "ProxyCommand=ssh -o WarnWeakCrypto=no -o IdentitiesOnly=yes -p \(serverSshPort) -i \(adminKeyPath) admin@\(server) /bin/nc %h %p"
         // `-tt` (not `-t`): force-allocates a remote PTY even if ssh
         // thinks the local side doesn't have a controlling tty. With
         // single `-t`, sudo's prompt over an SSH-with-command was
@@ -257,7 +270,7 @@ struct ConnectionService {
             }
             Log.info("VNC", "openVNC #\(host.blueskyid) \(host.displayName): allocated local port \(localPort)")
 
-            let proxy = "ProxyCommand=ssh -o WarnWeakCrypto=no -p \(serverSshPort) -i \(adminKeyPath) admin@\(server) /bin/nc %h %p"
+            let proxy = "ProxyCommand=ssh -o WarnWeakCrypto=no -o IdentitiesOnly=yes -p \(serverSshPort) -i \(adminKeyPath) admin@\(server) /bin/nc %h %p"
             let p = Process()
             p.launchPath = "/usr/bin/ssh"
             p.arguments = [
@@ -479,7 +492,7 @@ struct ConnectionService {
     /// SCP a single file to the remote ~/Desktop/ via embedded terminal tab.
     func openSCP(host: BlueSkyHost, remoteUser: String, sourceURL: URL) {
         onConnect?(host)
-        let proxy = "ProxyCommand=ssh -o WarnWeakCrypto=no -p \(serverSshPort) -i \(adminKeyPath) admin@\(server) /bin/nc %h %p"
+        let proxy = "ProxyCommand=ssh -o WarnWeakCrypto=no -o IdentitiesOnly=yes -p \(serverSshPort) -i \(adminKeyPath) admin@\(server) /bin/nc %h %p"
         let args = [
             "-o", proxy,
             "-o", "StrictHostKeyChecking=no",
@@ -496,7 +509,7 @@ struct ConnectionService {
     /// Open an interactive `ssh` session in macOS Terminal.app.
     func openSSHInTerminal(host: BlueSkyHost, remoteUser: String) {
         onConnect?(host)
-        let proxy = "ProxyCommand=ssh -o WarnWeakCrypto=no -p \(serverSshPort) -i \(adminKeyPath) admin@\(server) /bin/nc %h %p"
+        let proxy = "ProxyCommand=ssh -o WarnWeakCrypto=no -o IdentitiesOnly=yes -p \(serverSshPort) -i \(adminKeyPath) admin@\(server) /bin/nc %h %p"
         let cmd = "ssh -t -o '\(proxy)' -o StrictHostKeyChecking=no -o WarnWeakCrypto=no -p \(host.sshPort) \(shellQuote(remoteUser))@localhost"
         runInTerminal(command: cmd)
     }
@@ -506,7 +519,7 @@ struct ConnectionService {
     /// the result before closing.
     func openSCPInTerminal(host: BlueSkyHost, remoteUser: String, sourceURL: URL) {
         onConnect?(host)
-        let proxy = "ProxyCommand=ssh -o WarnWeakCrypto=no -p \(serverSshPort) -i \(adminKeyPath) admin@\(server) /bin/nc %h %p"
+        let proxy = "ProxyCommand=ssh -o WarnWeakCrypto=no -o IdentitiesOnly=yes -p \(serverSshPort) -i \(adminKeyPath) admin@\(server) /bin/nc %h %p"
         let cmd = """
         scp -o '\(proxy)' -o StrictHostKeyChecking=no -o WarnWeakCrypto=no -P \(host.sshPort) \(shellQuote(sourceURL.path)) \(shellQuote(remoteUser))@localhost:~/Desktop/ ; echo ; echo '— done —'
         """
@@ -535,7 +548,7 @@ struct ConnectionService {
             return
         }
         Log.info("VNC", "openVNCInTerminal #\(host.blueskyid) \(host.displayName): local port \(localPort)")
-        let proxy = "ProxyCommand=ssh -o WarnWeakCrypto=no -p \(serverSshPort) -i \(adminKeyPath) admin@\(server) /bin/nc %h %p"
+        let proxy = "ProxyCommand=ssh -o WarnWeakCrypto=no -o IdentitiesOnly=yes -p \(serverSshPort) -i \(adminKeyPath) admin@\(server) /bin/nc %h %p"
         let vncUser = user.addingPercentEncoding(withAllowedCharacters: .urlUserAllowed) ?? user
         let vncURL  = shellQuote("vnc://\(vncUser)@localhost:\(localPort)")
         let cmd = """

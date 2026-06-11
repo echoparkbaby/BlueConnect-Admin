@@ -29,6 +29,8 @@ struct ContentView: View {
     ]
     @State private var alert: AlertContent?
     @State private var renameTarget: BlueSkyHost?
+    @State private var setUsernameTargets: [BlueSkyHost] = []
+    @State private var showingSetUsernameSheet = false
     @State private var categoryTargets: [BlueSkyHost] = []
     @State private var showingCategorySheet = false
     @State private var showingActivityLog = false
@@ -402,6 +404,11 @@ struct ContentView: View {
                 runRename(host: h, newHostname: newName)
             }
         }
+        .sheet(isPresented: $showingSetUsernameSheet) {
+            SetUsernameSheet(hosts: setUsernameTargets, currentDefault: settings.defaultRemoteUser) { newUser in
+                runSetUsername(hosts: setUsernameTargets, newUsername: newUser)
+            }
+        }
         .sheet(isPresented: $showingActivityLog) {
             ActivityLogView().environment(activity)
         }
@@ -694,6 +701,15 @@ struct ContentView: View {
                         let hosts = hostStore.hosts.filter { ids.contains($0.blueskyid) }
                         Task { await setFavorite(true, on: hosts) }
                     },
+                    onSetUsernameForCategory: { name in
+                        let matched = hostStore.hosts.filter { ($0.category ?? "") == name }
+                        if matched.isEmpty {
+                            alert = .result(title: "No Hosts in Category", message: "No hosts are currently assigned to \"\(name)\".")
+                            return
+                        }
+                        setUsernameTargets = matched
+                        showingSetUsernameSheet = true
+                    },
                     onOpenMunkiBrowser: { showingMunkiBrowser = true },
                     munkiStore: munkiStore
                 )
@@ -931,7 +947,10 @@ struct ContentView: View {
             .width(min: 200, ideal: 210, max: 240)
             .customizationID("connect")
             TableColumn("User", value: \BlueSkyHost.usernameSortKey) { h in
-                UserCell(host: h, defaultUser: settings.defaultRemoteUser)
+                UserCell(host: h, defaultUser: settings.defaultRemoteUser) {
+                    setUsernameTargets = [h]
+                    showingSetUsernameSheet = true
+                }
             }
             .width(min: 90, ideal: 130, max: 200)
             .customizationID("user")
@@ -1054,6 +1073,10 @@ struct ContentView: View {
                 .disabled(!h.active)
                 Divider()
                 Button("Rename…") { renameTarget = h }
+                Button("Set Username…") {
+                    setUsernameTargets = [h]
+                    showingSetUsernameSheet = true
+                }
                 Menu("Set Category") {
                     if !categories.categories.isEmpty {
                         ForEach(categories.categories, id: \.self) { cat in
@@ -1094,6 +1117,10 @@ struct ContentView: View {
                 // menu per user spec — see the block above the
                 // Connections section.)
             } else if menuTargets.count > 1 {
+                Button("Set Username for \(menuTargets.count) Hosts…") {
+                    setUsernameTargets = menuTargets
+                    showingSetUsernameSheet = true
+                }
                 Menu("Set Category for \(menuTargets.count) Hosts") {
                     if !categories.categories.isEmpty {
                         ForEach(categories.categories, id: \.self) { cat in
@@ -1203,6 +1230,13 @@ struct ContentView: View {
 
     private func runQuickAction(host: BlueSkyHost, kind: QuickActionKind) {
         let user = host.effectiveUser(default: settings.defaultRemoteUser)
+        guard !user.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            alert = .result(
+                title: "No Remote Username",
+                message: "There's no per-host username on #\(host.blueskyid) and no Default remote user in Settings. Set one via right-click → Set Username… on the host, or Settings → Connection defaults → Default remote user."
+            )
+            return
+        }
         var svc = ConnectionService(
             server: settings.serverFqdn,
             adminKeyPath: settings.expandedKeyPath,
@@ -1226,6 +1260,13 @@ struct ContentView: View {
 
     private func openInTerminal(host: BlueSkyHost, kind: QuickActionKind) {
         let user = host.effectiveUser(default: settings.defaultRemoteUser)
+        guard !user.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            alert = .result(
+                title: "No Remote Username",
+                message: "There's no per-host username on #\(host.blueskyid) and no Default remote user in Settings. Set one via right-click → Set Username… on the host, or Settings → Connection defaults → Default remote user."
+            )
+            return
+        }
         var svc = ConnectionService(
             server: settings.serverFqdn,
             adminKeyPath: settings.expandedKeyPath,
@@ -1672,6 +1713,48 @@ struct ContentView: View {
             } catch {
                 let m = (error as? APIError)?.errorDescription ?? error.localizedDescription
                 alert = .result(title: "Save Notes Failed", message: m)
+            }
+        }
+    }
+
+    private func runSetUsername(hosts: [BlueSkyHost], newUsername: String) {
+        guard !hosts.isEmpty else { return }
+        Task {
+            var ok = 0
+            var failed: [String] = []
+            for h in hosts {
+                do {
+                    _ = try await BlueSkyAPI.shared.updateHost(
+                        blueskyid: h.blueskyid,
+                        fields: ["username": newUsername],
+                        apiURL: settings.apiURL,
+                        username: settings.apiUsername,
+                        password: settings.webAdminPass
+                    )
+                    ok += 1
+                } catch {
+                    let m = (error as? APIError)?.errorDescription ?? error.localizedDescription
+                    failed.append("#\(h.blueskyid) \(h.displayName): \(m.prefix(80))")
+                }
+            }
+            await hostStore.refresh(settings: settings)
+            let valueText = newUsername.isEmpty ? "cleared (fall back to default)" : "→ \(newUsername)"
+            if hosts.count == 1 {
+                let h = hosts[0]
+                if failed.isEmpty {
+                    activity.record(.rename, title: "Set username #\(h.blueskyid)", detail: "\(h.displayName) \(valueText)")
+                } else {
+                    activity.record(.error, title: "Set username failed", detail: failed.first ?? "")
+                    alert = .result(title: "Set Username Failed", message: failed.first ?? "")
+                }
+            } else {
+                activity.record(.rename, title: "Bulk set username", detail: "\(ok)/\(hosts.count) hosts \(valueText)")
+                if !failed.isEmpty {
+                    alert = .result(
+                        title: "Bulk Set Username Partial",
+                        message: "Succeeded: \(ok) of \(hosts.count)\n\nFailed:\n" + failed.prefix(8).joined(separator: "\n")
+                    )
+                }
             }
         }
     }

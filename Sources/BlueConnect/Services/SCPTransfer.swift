@@ -61,15 +61,23 @@ final class SCPTransfer {
         guard canStart, let src = sourceURL else { return }
         let user = host.effectiveUser(default: settings.defaultRemoteUser)
         let dest = "\(user)@localhost:\(destinationPath)"
-        let proxy = "ProxyCommand=ssh -o WarnWeakCrypto=no -p \(settings.sshTunnelPort) -i \(settings.expandedKeyPath) admin@\(settings.serverFqdn) /bin/nc %h %p"
+        // IdentitiesOnly=yes — see VNCConnectController for rationale.
+        // Stops the BSC-server hop from offering every agent key
+        // before bluesky_admin and tripping MaxAuthTries=6.
+        let proxy = "ProxyCommand=ssh -o WarnWeakCrypto=no -o IdentitiesOnly=yes -p \(settings.sshTunnelPort) -i \(settings.expandedKeyPath) admin@\(settings.serverFqdn) /bin/nc %h %p"
 
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/scp")
+        // BatchMode=yes dropped v1.5.6 for the same reason it left
+        // VNCConnectController: it blocks macOS keychain from silently
+        // answering the bluesky_admin passphrase prompt, so operators
+        // with the legacy AppleScript-app keychain entry got
+        // "Permission denied" on a key that would have unlocked fine
+        // in Terminal.
         p.arguments = [
             "-o", proxy,
             "-o", "StrictHostKeyChecking=no",
             "-o", "WarnWeakCrypto=no",
-            "-o", "BatchMode=yes",
             "-P", "\(host.sshPort)",
             src.path,
             dest,

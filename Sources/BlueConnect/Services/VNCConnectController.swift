@@ -55,16 +55,32 @@ final class VNCConnectController {
         localPort = chosen
         Log.info("VNC", "modal openVNC #\(host.blueskyid) \(host.displayName): allocated local port \(chosen)")
 
-        let proxy = "ProxyCommand=ssh -o WarnWeakCrypto=no -p \(serverSshPort) -i \(adminKeyPath) admin@\(server) /bin/nc %h %p"
+        // IdentitiesOnly=yes restricts the BSC-server hop to just
+        // bluesky_admin. Without it, a deep ssh-agent (many keys, a
+        // lifetime of admin work) blows past sshd's MaxAuthTries=6
+        // before the right key gets tried, and the server drops the
+        // connection with "Too many authentication failures". The
+        // outer ssh below is intentionally NOT constrained — that hop
+        // authenticates to the Mac fleet client with whatever key the
+        // operator uses for fleet access, which may not be bluesky_admin.
+        let proxy = "ProxyCommand=ssh -o WarnWeakCrypto=no -o IdentitiesOnly=yes -p \(serverSshPort) -i \(adminKeyPath) admin@\(server) /bin/nc %h %p"
         let p = Process()
         p.launchPath = "/usr/bin/ssh"
+        // BatchMode=yes was here historically to fail fast when creds are
+        // missing. Removed v1.5.6: it also blocked the macOS keychain
+        // from silently answering a passphrase prompt for the BSC
+        // ProxyCommand key — operators with `bluesky_admin` stored in
+        // keychain (the legacy AppleScript-app setup) got "Permission
+        // denied" even though the key would have unlocked fine in a
+        // real Terminal session. Without BatchMode the keychain answers
+        // transparently; the 5s bind-poll below still bounds the
+        // worst-case wait when the prompt has no answerer.
         p.arguments = [
             "-N", "-T",
             "-o", proxy,
             "-o", "StrictHostKeyChecking=no",
             "-o", "WarnWeakCrypto=no",
             "-o", "ExitOnForwardFailure=yes",
-            "-o", "BatchMode=yes",
             "-L", "\(chosen):localhost:5900",
             "-p", "\(host.sshPort)",
             "\(user)@localhost",
@@ -96,6 +112,15 @@ final class VNCConnectController {
             let detail: String
             if errStr.contains("Connection refused") && errStr.contains("22") {
                 detail = "The host's reverse tunnel isn't currently listening on the bluesky server. The client may have gone offline between your last refresh and now. Refresh the list and try again, or pick a host that's currently green.\n\n\(errStr)"
+            } else if errStr.contains("Too many authentication failures") {
+                // With IdentitiesOnly=yes on the BSC-server hop, this
+                // can only come from the outer hop to the fleet Mac
+                // client. The client's sshd default MaxAuthTries=6
+                // disconnects when ssh offers too many agent keys
+                // before the one in authorized_keys gets tried. The
+                // workaround is to thin the agent to just the key the
+                // client expects.
+                detail = "Too many SSH keys offered to the host before the right one — your ssh-agent has more keys loaded than the remote Mac's sshd lets through in one connection.\n\nClear the agent and reload only the key the host expects, then retry:\n\n  ssh-add -D\n  ssh-add --apple-use-keychain <path-to-the-key>\n\n\(errStr)"
             } else if errStr.contains("Permission denied") {
                 detail = "SSH authentication failed. Run this once in Terminal then retry:\n\n  ssh-add --apple-use-keychain ~/.ssh/bluesky_admin\n\n\(errStr)"
             } else if errStr.isEmpty {

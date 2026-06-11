@@ -9,6 +9,10 @@ struct SidebarView: View {
     @Binding var selection: SidebarFilter
     let onAssign: ([Int], String) -> Void
     let onFavorite: ([Int]) -> Void
+    /// Fires from the category row's right-click menu — opens the
+    /// Set Username sheet pre-populated with every host that has the
+    /// passed category assigned. Parent resolves the host list.
+    let onSetUsernameForCategory: (String) -> Void
     let onOpenMunkiBrowser: () -> Void
     /// Shared Munki store so the sidebar reflects refresh state too.
     let munkiStore: MunkiRepoStore
@@ -303,6 +307,10 @@ struct SidebarView: View {
         .if(deletable) { v in
             v.contextMenu {
                 if case .category(let name) = filter {
+                    Button("Set Username for All Hosts in \"\(name)\"…") {
+                        onSetUsernameForCategory(name)
+                    }
+                    Divider()
                     Button("Delete category…", role: .destructive) {
                         deleteAlsoClearHosts = true
                         pendingDelete = name
