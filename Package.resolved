@@ -12,10 +12,9 @@
     {
       "identity" : "swiftterm",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/migueldeicaza/SwiftTerm",
+      "location" : "https://github.com/kfattic/SwiftTerm",
       "state" : {
-        "revision" : "8e7a1e154f470e19c709a00a8768df348ba5fc43",
-        "version" : "1.13.0"
+        "revision" : "fc6c9bcae847c0e01be639214a1a2cd7697936d4"
       }
     }
   ],

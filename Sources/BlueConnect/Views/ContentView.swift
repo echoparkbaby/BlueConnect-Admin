@@ -204,11 +204,9 @@ struct ContentView: View {
             // Push terminal-appearance changes into every already-open
             // session so the operator sees the result of a Settings
             // tweak without having to close and reopen each tab.
-            .onChange(of: settings.terminalFontName)      { _, _ in terminals.reapplyAppearanceToAllSessions() }
-            .onChange(of: settings.terminalFontSize)      { _, _ in terminals.reapplyAppearanceToAllSessions() }
-            .onChange(of: settings.terminalForegroundHex) { _, _ in terminals.reapplyAppearanceToAllSessions() }
-            .onChange(of: settings.terminalBackgroundHex) { _, _ in terminals.reapplyAppearanceToAllSessions() }
-            .onChange(of: settings.terminalCursorHex)     { _, _ in terminals.reapplyAppearanceToAllSessions() }
+            .onReceive(NotificationCenter.default.publisher(for: TerminalThemeStore.changed)) { _ in
+                terminals.reapplyAppearanceToAllSessions()
+            }
             // Hosts-table column persistence: load on first appear,
             // save on every customization change. Matches the
             // ScannedTableWindow pattern; replaces the old
