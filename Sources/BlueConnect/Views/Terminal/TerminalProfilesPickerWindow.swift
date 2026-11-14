@@ -1,190 +1,80 @@
 import SwiftUI
 import AppKit
 
-/// Floating picker for the four built-in Terminal presets plus the
-/// generic high-contrast / reset shortcuts. Opens with ⌘⇧I — mirrors
-/// the Apple Terminal "Profiles" feel without committing to the full
-/// terminal-prefs window. Each card paints itself in the actual
-/// profile colors so the operator can pick by sight.
+/// Floating ⌘⇧I theme picker: every built-in theme (Homebrew first) and the
+/// operator's own, as cards painted in each theme's colors. Clicking applies
+/// it to every open terminal without closing the picker.
 struct TerminalProfilesPickerWindow: View {
-    @EnvironmentObject private var settings: SettingsStore
-    /// Still referenced by `KeyboardEscapeCatcher` for the Esc-to-
-    /// close path. Card clicks no longer dismiss — the operator can
-    /// switch presets and watch live terminals update without losing
-    /// the picker.
     @Environment(\.dismissWindow) private var dismissWindow
     @Environment(\.openSettings) private var openSettings
-
-    /// One displayable preset. `matches(settings:)` says whether the
-    /// live SettingsStore is currently on this preset, so its card
-    /// can be drawn highlighted.
-    fileprivate struct Profile: Identifiable {
-        let id: String
-        let label: String
-        let backgroundHex: String
-        let foregroundHex: String
-        let cursorHex: String
-        let fontSize: Double
-        let useInconsolata: Bool
-
-        /// True when the live SettingsStore matches every dimension
-        /// of this preset, including font. Without the font check,
-        /// Peppermint (Inconsolata) and Default (System Mono) — which
-        /// share bg/fg/cursor — both lit up active simultaneously.
-        /// `@MainActor` because SettingsStore's `@AppStorage` props
-        /// are main-actor-isolated.
-        @MainActor
-        func matches(settings: SettingsStore) -> Bool {
-            let wantsInconsolata = useInconsolata
-                && NSFont(name: "Inconsolata-Regular", size: CGFloat(fontSize)) != nil
-            let expectedFontName = wantsInconsolata ? "Inconsolata-Regular" : ""
-            return settings.terminalBackgroundHex.lowercased() == backgroundHex.lowercased()
-                && settings.terminalForegroundHex.lowercased() == foregroundHex.lowercased()
-                && settings.terminalCursorHex.lowercased() == cursorHex.lowercased()
-                && Int(settings.terminalFontSize) == Int(fontSize)
-                && settings.terminalFontName == expectedFontName
-        }
-    }
-
-    /// Foreground for the four colored presets — bright green
-    /// (Dracula palette) instead of white. Readable against red,
-    /// bright blue, navy, and black backgrounds — the four bg colors
-    /// used by Red Dead, Open Water, Deep Sea, and Peppermint.
-    private static let presetForeground = "#50FA7B"
-
-    private static let profiles: [Profile] = [
-        Profile(id: "red-dead",   label: "Red Dead",
-                backgroundHex: "#8a0c0f", foregroundHex: presetForeground,
-                cursorHex: "#ffffff", fontSize: 14, useInconsolata: true),
-        Profile(id: "open-water", label: "Open Water",
-                backgroundHex: "#2f32ff", foregroundHex: presetForeground,
-                cursorHex: "#ffffff", fontSize: 14, useInconsolata: true),
-        Profile(id: "deep-sea",   label: "Deep Sea",
-                backgroundHex: "#121172", foregroundHex: presetForeground,
-                cursorHex: "#ffffff", fontSize: 14, useInconsolata: true),
-        Profile(id: "peppermint", label: "Peppermint",
-                backgroundHex: "#0f0f0f", foregroundHex: presetForeground,
-                cursorHex: "#ff2734", fontSize: 14, useInconsolata: true),
-        Profile(id: "high-contrast", label: "High Contrast",
-                backgroundHex: "#000000", foregroundHex: "#ffffff",
-                cursorHex: "#ffeb3b", fontSize: 14, useInconsolata: false),
-        Profile(id: "defaults", label: "Default",
-                backgroundHex: "#0f0f0f", foregroundHex: presetForeground,
-                cursorHex: "#ff2734", fontSize: 14, useInconsolata: false),
-    ]
+    @State private var active = TerminalThemeStore.active
+    @State private var custom = TerminalThemeStore.custom
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline) {
-                Text("Terminal Profile")
-                    .font(.title3).bold()
+                Text("Terminal Theme").font(.title3).bold()
                 Spacer()
                 Button("Customize…") {
-                    // Write the AppStorage key SettingsView reads on
-                    // mount, then open Settings. Doing this directly
-                    // (rather than via NotificationCenter) means the
-                    // value is present before SettingsView is even
-                    // constructed — no first-open timing race. Also
-                    // post the notification so any already-open
-                    // SettingsView jumps panes immediately.
+                    // Write the key SettingsView reads on mount, then open
+                    // Settings; the notification moves an already-open
+                    // SettingsView to the Terminal pane.
                     UserDefaults.standard.set("terminal", forKey: "settingsSelection")
-                    NotificationCenter.default.post(
-                        name: .blueConnectOpenTerminalSettings,
-                        object: nil
-                    )
+                    NotificationCenter.default.post(name: .blueConnectOpenTerminalSettings, object: nil)
                     openSettings()
                 }
                 .controlSize(.small)
             }
-
-            LazyVGrid(
-                columns: [
-                    GridItem(.flexible(), spacing: 12),
-                    GridItem(.flexible(), spacing: 12),
-                ],
-                spacing: 12
-            ) {
-                ForEach(Self.profiles) { p in
-                    profileCard(p)
+            ScrollView {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3), spacing: 10) {
+                    ForEach(TerminalTheme.presets + custom) { card($0) }
                 }
+                .padding(2)
             }
-
-            Text("Press a card to apply. ⌘⇧I reopens this picker; ⌘, takes you to Settings → Terminal for full color control.")
+            Text("Click a theme to apply it. ⌘⇧I reopens this picker; Customize… edits colors, fonts and the cursor.")
                 .font(.caption2).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(18)
-        .frame(width: 460, height: 380)
+        .padding(16)
+        .frame(width: 520, height: 470)
         .background(KeyboardEscapeCatcher { dismissWindow() })
+        .onReceive(NotificationCenter.default.publisher(for: TerminalThemeStore.changed)) { _ in
+            active = TerminalThemeStore.active
+            custom = TerminalThemeStore.custom
+        }
     }
 
-    /// One color-bath card showing how the preset will look when
-    /// applied. Click → apply + dismiss. Hover gives a faint outline
-    /// so the click target is unambiguous.
-    private func profileCard(_ p: Profile) -> some View {
-        let bg = NSColor.fromHex(p.backgroundHex) ?? .black
-        let fg = NSColor.fromHex(p.foregroundHex) ?? .white
-        let cursor = NSColor.fromHex(p.cursorHex) ?? fg
-        let isActive = p.matches(settings: settings)
+    private func card(_ t: TerminalTheme) -> some View {
+        let isActive = active.id == t.id
         return Button {
-            // Apply without dismissing — the operator can tab through
-            // presets and see each one applied to live terminals in
-            // real time without losing the picker window.
-            apply(p)
+            // Unsaved edits from Settings → Terminal: Save / Discard / Cancel first.
+            guard TerminalThemeStore.confirmUnsaved(allowCancel: true) else { return }
+            TerminalThemeStore.active = t.resolvedForThisMac
         } label: {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("admin@bluesky")
-                    .font(previewFont(p))
-                    .foregroundStyle(Color(nsColor: fg))
+            VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 0) {
-                    Text(" ~$ ls -la ")
-                        .font(previewFont(p))
-                        .foregroundStyle(Color(nsColor: fg))
-                    Rectangle()
-                        .fill(Color(nsColor: cursor))
-                        .frame(width: p.fontSize * 0.55, height: p.fontSize * 1.1)
+                    Text("~ % ls").foregroundStyle(Color(nsColor: t.ns(t.text)))
+                    Rectangle().fill(Color(nsColor: t.ns(t.cursor))).frame(width: 7, height: 13).padding(.leading, 3)
                 }
-                Spacer(minLength: 0)
-                Text(p.label)
-                    .font(.callout).bold()
-                    .foregroundStyle(Color(nsColor: fg))
+                .font(.system(size: 12, design: .monospaced))
+                HStack(spacing: 3) {
+                    ForEach(1..<7) { i in
+                        Circle().fill(Color(nsColor: t.ns(t.ansi[i]))).frame(width: 7, height: 7)
+                    }
+                }
+                Text(t.name).font(.callout.weight(.semibold)).foregroundStyle(Color(nsColor: t.ns(t.text)))
+                    .lineLimit(1).minimumScaleFactor(0.75)
             }
-            .padding(12)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-            .background(Color(nsColor: bg))
+            .padding(9)
+            .frame(maxWidth: .infinity, minHeight: 68, alignment: .leading)
+            .background(Color(nsColor: t.ns(t.background, .black)))
             .clipShape(RoundedRectangle(cornerRadius: 8))
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(isActive ? Color.accentColor : Color.secondary.opacity(0.25),
-                            lineWidth: isActive ? 2 : 1)
-            )
+            .overlay(RoundedRectangle(cornerRadius: 8)
+                .stroke(isActive ? Color.accentColor : Color.secondary.opacity(0.25), lineWidth: isActive ? 3 : 1))
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(isActive ? "Currently active" : "Click to apply")
-    }
-
-    /// SwiftUI Font built from the preset's font + size. Inconsolata if
-    /// installed, else the system monospaced face — keeps the preview
-    /// readable on machines without the third-party font.
-    private func previewFont(_ p: Profile) -> Font {
-        if p.useInconsolata,
-           let ns = NSFont(name: "Inconsolata-Regular", size: CGFloat(p.fontSize)) {
-            return Font(ns as CTFont)
-        }
-        return .system(size: p.fontSize, design: .monospaced)
-    }
-
-    private func apply(_ p: Profile) {
-        settings.terminalBackgroundHex = p.backgroundHex
-        settings.terminalForegroundHex = p.foregroundHex
-        settings.terminalCursorHex     = p.cursorHex
-        settings.terminalFontSize      = p.fontSize
-        if p.useInconsolata,
-           NSFont(name: "Inconsolata-Regular", size: CGFloat(p.fontSize)) != nil {
-            settings.terminalFontName = "Inconsolata-Regular"
-        } else {
-            settings.terminalFontName = ""
-        }
+        .help(isActive ? "Currently active" : "Click to apply · \(t.fontLabel)")
     }
 }
 

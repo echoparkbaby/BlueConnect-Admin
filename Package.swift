@@ -5,7 +5,10 @@ let package = Package(
     name: "BlueConnectAdmin",
     platforms: [.macOS(.v14)],
     dependencies: [
-        .package(url: "https://github.com/migueldeicaza/SwiftTerm", from: "1.2.0"),
+        // SwiftTerm 1.13.0 plus a small opt-in patch for Terminal.app-style text
+        // (antialiasing off, bold options, Terminal.app line height):
+        // https://github.com/kfattic/SwiftTerm/commit/fc6c9bcae847c0e01be639214a1a2cd7697936d4
+        .package(url: "https://github.com/kfattic/SwiftTerm", revision: "fc6c9bcae847c0e01be639214a1a2cd7697936d4"),
     ],
     targets: [
         .executableTarget(

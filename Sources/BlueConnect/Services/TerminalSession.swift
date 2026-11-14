@@ -151,44 +151,26 @@ final class TerminalSession: NSObject, Identifiable, LocalProcessTerminalViewDel
         view.process.send(data: bytes[...])
     }
 
-    /// Push the user's saved Terminal preferences into a SwiftTerm
-    /// view. Reads `terminalFontSize` + the three color hex strings
-    /// straight from UserDefaults (the same store `@AppStorage` writes
-    /// to) so this stays usable from a non-SwiftUI context — e.g. the
-    /// init path, where wiring up an `@AppStorage` would require
-    /// turning the type into a `View`.
-    static func applyAppearance(to view: LocalProcessTerminalView) {
-        let d = UserDefaults.standard
-        let size = d.object(forKey: "terminalFontSize") as? Double ?? 12.0
-        // Pick a font face: empty name → system monospace; otherwise
-        // try to load the saved PostScript name and fall back to system
-        // monospace if it isn't installed (so an uninstalled face
-        // silently degrades instead of crashing).
-        let name = d.string(forKey: "terminalFontName") ?? ""
-        if !name.isEmpty, let custom = NSFont(name: name, size: CGFloat(size)) {
-            view.font = custom
-        } else {
-            view.font = NSFont.monospacedSystemFont(ofSize: CGFloat(size), weight: .regular)
-        }
-
-        if let bg = NSColor.fromHex(d.string(forKey: "terminalBackgroundHex") ?? "") {
-            view.nativeBackgroundColor = bg
-        }
-        if let fg = NSColor.fromHex(d.string(forKey: "terminalForegroundHex") ?? "") {
-            view.nativeForegroundColor = fg
-        }
-        if let cur = NSColor.fromHex(d.string(forKey: "terminalCursorHex") ?? "") {
-            view.caretColor = cur
-        }
-
-        // Custom 16-color ANSI palette. Stock xterm blue (#0225C7) and
-        // bright blue (#6871FF) are unreadable on the Peppermint-style
-        // dark backgrounds we ship as defaults — and operator shell
-        // prompts (PS1, starship, oh-my-zsh) routinely paint the hostname
-        // in ANSI blue. Remap ANSI 4 + 12 to white so that text reads
-        // clearly without the operator needing to touch their PS1.
-        view.installColors(BlueConnectAnsiPalette.colors)
-
+    /// Push the active terminal theme (Settings → Terminal) into a
+    /// SwiftTerm view: font, background / text / bold / cursor / selection
+    /// colors, the theme's 16 ANSI colors, cursor shape + blink, and the
+    /// Apple Terminal text options (antialiasing, bold fonts, line height).
+    static func applyAppearance(to view: LocalProcessTerminalView,
+                                theme: TerminalTheme = TerminalThemeStore.active) {
+        let t = theme
+        view.terminalAppLineHeight = true   // same line spacing as Apple Terminal
+        view.syntheticBold = true           // fonts without a bold face draw bold like Apple Terminal
+        view.font = t.nsFont
+        // See-through below 100 % opacity: TerminalContainer shows the desktop behind it.
+        view.nativeBackgroundColor = t.ns(t.background, .black).withAlphaComponent(t.opacity)
+        view.nativeForegroundColor = t.ns(t.text)
+        view.caretColor = t.ns(t.cursor)
+        view.selectedTextBackgroundColor = t.ns(t.selection, .selectedTextBackgroundColor)
+        view.textAntialiasing = t.antialias
+        view.useBoldFonts = t.useBoldFonts
+        view.boldForegroundColor = t.boldText.uppercased() == t.text.uppercased() ? nil : t.ns(t.boldText)
+        view.installColors(t.swiftTermANSI)
+        view.getTerminal().setCursorStyle(t.swiftTermCursor)
         view.needsDisplay = true
     }
 
