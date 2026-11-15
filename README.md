@@ -1,5 +1,13 @@
 # BlueConnect Admin
 
+> [!NOTE]
+> **BlueConnect Admin continues as [Edict MDM](https://github.com/echoparkbaby/Edict-MDM).**
+> Version 2.0.0 is the next major release under a new name. It keeps every remote-support feature from 1.5.6 and adds optional Apple device management. It needs macOS 15 or later, installs next to BlueConnect Admin, and offers to import your settings on first launch. No server changes are required.
+>
+> **[Download Edict MDM 2.0.0](https://github.com/echoparkbaby/Edict-MDM/releases/tag/v2.0.0)**
+>
+> BlueConnect Admin 1.5.6 remains available here for Macs on macOS 13 or 14.
+
 A native macOS admin client for [BlueSkyConnect](https://github.com/BlueSkyTools/BlueSkyConnect), the SSH reverse-tunnel concentrator for remote-supporting a Mac fleet. Lists every registered host, shows which ones are tunneled, and connects via SSH, Screen Share (VNC), or file upload (SCP) with one click.
 
 ![BlueConnect Admin screenshot](Resources/screenshot.png)
